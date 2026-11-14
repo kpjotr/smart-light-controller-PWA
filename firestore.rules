@@ -1,0 +1,78 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isDeviceMember(deviceData) {
+      return isAuthenticated()
+        && deviceData.allowedUsers is list
+        && request.auth.uid in deviceData.allowedUsers;
+    }
+
+    function isBoundedNumber(val, minVal, maxVal) {
+      return (val is int || val is float) && val >= minVal && val <= maxVal;
+    }
+
+    function isValidDeviceSettingsUpdate() {
+      let data = request.resource.data;
+      let prev = resource.data;
+      let allowedWritableKeys = [
+        'lux_threshold',
+        'treshold',
+        'duration',
+        'cycle_len',
+        'pir_sensitivity',
+        'safety_off',
+        'lamp_wattage',
+        'logging_enabled',
+        'lamp_on',
+        'restart'
+      ];
+
+      return data.allowedUsers == prev.allowedUsers
+        && data.diff(prev).affectedKeys().hasOnly(allowedWritableKeys)
+        && (!('lux_threshold' in data) || isBoundedNumber(data.lux_threshold, 0, 65535))
+        && (!('treshold' in data) || isBoundedNumber(data.treshold, 0, 1000))
+        && (!('duration' in data) || isBoundedNumber(data.duration, 5, 7200))
+        && (!('cycle_len' in data) || isBoundedNumber(data.cycle_len, 1, 60))
+        && (!('pir_sensitivity' in data) || isBoundedNumber(data.pir_sensitivity, 1, 255))
+        && (!('safety_off' in data) || isBoundedNumber(data.safety_off, 60, 28800))
+        && (!('lamp_wattage' in data) || isBoundedNumber(data.lamp_wattage, 1, 5000))
+        && (!('logging_enabled' in data) || data.logging_enabled is bool)
+        && (!('lamp_on' in data) || data.lamp_on is bool)
+        && (!('restart' in data) || data.restart is bool);
+    }
+
+    function isValidSelfUnpair() {
+      let data = request.resource.data;
+      let prev = resource.data;
+
+      return data.diff(prev).affectedKeys().hasOnly(['allowedUsers'])
+        && data.allowedUsers is list
+        && !(request.auth.uid in data.allowedUsers)
+        && data.allowedUsers.size() == prev.allowedUsers.size() - 1
+        && prev.allowedUsers.hasAll(data.allowedUsers);
+    }
+
+    match /devices/{deviceId} {
+      allow read: if isDeviceMember(resource.data);
+      allow update: if isDeviceMember(resource.data)
+        && (isValidDeviceSettingsUpdate() || isValidSelfUnpair());
+
+      match /pairing_requests/{requestId} {
+        allow create: if isAuthenticated()
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.pin is string
+          && request.resource.data.pin.size() > 0;
+      }
+
+      match /logs/{logId} {
+        allow create, read: if isAuthenticated()
+          && request.auth.uid in get(/databases/$(database)/documents/devices/$(deviceId)).data.allowedUsers;
+      }
+    }
+  }
+}
