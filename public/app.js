@@ -3,7 +3,6 @@ import {
   getAuth,
   onAuthStateChanged,
   signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
   signOut,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 import {
@@ -40,7 +39,6 @@ const els = {
   authEmail: document.getElementById('auth-email'),
   authPassword: document.getElementById('auth-password'),
   signInBtn: document.getElementById('sign-in-btn'),
-  signUpBtn: document.getElementById('sign-up-btn'),
   authError: document.getElementById('auth-error'),
   appSection: document.getElementById('app-section'),
   deviceSelect: document.getElementById('device-select'),
@@ -245,7 +243,6 @@ async function handleAuthSubmit(event) {
   }
 
   els.signInBtn.disabled = true;
-  els.signUpBtn.disabled = true;
   try {
     await signInWithEmailAndPassword(auth, email, password);
     els.authForm.reset();
@@ -253,32 +250,6 @@ async function handleAuthSubmit(event) {
     setFieldError(els.authError, error.message);
   } finally {
     els.signInBtn.disabled = false;
-    els.signUpBtn.disabled = false;
-  }
-}
-
-async function handleSignUp() {
-  setFieldError(els.authError, '');
-
-  const email = els.authEmail.value.trim();
-  const password = els.authPassword.value;
-
-  if (!email || password.length < 6) {
-    setFieldError(els.authError, 'Enter a valid email and a password of at least 6 characters.');
-    return;
-  }
-
-  els.signInBtn.disabled = true;
-  els.signUpBtn.disabled = true;
-  try {
-    await createUserWithEmailAndPassword(auth, email, password);
-    els.authForm.reset();
-    showBanner('Account created and signed in.', 'success');
-  } catch (error) {
-    setFieldError(els.authError, error.message);
-  } finally {
-    els.signInBtn.disabled = false;
-    els.signUpBtn.disabled = false;
   }
 }
 
@@ -434,7 +405,6 @@ function init() {
   bindSliderAndNumberSync();
 
   els.authForm.addEventListener('submit', handleAuthSubmit);
-  els.signUpBtn.addEventListener('click', handleSignUp);
   els.signOutBtn.addEventListener('click', () => auth && signOut(auth));
   els.deviceSelect.addEventListener('change', () => {
     selectedId = els.deviceSelect.value;
