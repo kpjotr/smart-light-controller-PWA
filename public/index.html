@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0f172a">
+  <title>Smart Light Controller</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="app-header">
+      <div class="brand">
+        <h1>Smart Light Controller</h1>
+        <span class="version-badge" id="app-version">__VERSION__</span>
+      </div>
+      <div class="user-bar hidden" id="user-bar">
+        <span class="user-email" id="user-email"></span>
+        <button type="button" class="btn btn-secondary" id="sign-out-btn">Sign Out</button>
+      </div>
+    </header>
+
+    <div class="toast-banner hidden" id="status-banner" role="status" aria-live="polite"></div>
+
+    <!-- Auth Section -->
+    <main>
+      <section class="card auth-card" id="auth-section" aria-labelledby="auth-heading">
+        <h2 id="auth-heading">Sign In</h2>
+        <p class="muted">Sign in with your email and password to manage your paired smart lights.</p>
+        <form id="auth-form" novalidate>
+          <div class="field">
+            <label for="auth-email">Email</label>
+            <input type="email" id="auth-email" autocomplete="email" required placeholder="you@example.com">
+          </div>
+          <div class="field">
+            <label for="auth-password">Password</label>
+            <input type="password" id="auth-password" autocomplete="current-password" required minlength="6" placeholder="••••••••">
+          </div>
+          <div class="auth-actions">
+            <button type="submit" class="btn btn-primary" id="sign-in-btn">Sign In</button>
+          </div>
+          <p class="form-error hidden" id="auth-error" role="alert"></p>
+        </form>
+      </section>
+
+      <!-- Authenticated App Section -->
+      <div class="hidden" id="app-section">
+        <div class="top-grid">
+          <!-- Device Selector -->
+          <section class="card" aria-labelledby="selector-heading">
+            <h2 id="selector-heading">Device Selector</h2>
+            <div class="field">
+              <label for="device-select">Paired Devices</label>
+              <select id="device-select" aria-label="Select a paired device">
+                <option value="">-- Select a device --</option>
+              </select>
+            </div>
+            <p class="muted" id="device-count-hint">Loading devices...</p>
+          </section>
+
+          <!-- Pairing UI -->
+          <section class="card" aria-labelledby="pairing-heading">
+            <h2 id="pairing-heading">Pair New Device</h2>
+            <form id="pairing-form" novalidate>
+              <div class="field">
+                <label for="pair-device-id">Device ID</label>
+                <input type="text" id="pair-device-id" required placeholder="e.g. lamp-hallway-01">
+              </div>
+              <div class="field">
+                <label for="pair-pin">Pairing PIN</label>
+                <input type="text" id="pair-pin" required inputmode="numeric" placeholder="Enter device PIN">
+              </div>
+              <button type="submit" class="btn btn-primary" id="pair-submit-btn">Send Pairing Request</button>
+              <p class="form-error hidden" id="pairing-error" role="alert"></p>
+            </form>
+          </section>
+        </div>
+
+        <!-- Device Dashboard -->
+        <section class="card dashboard-card hidden" id="dashboard-section" aria-labelledby="dashboard-heading">
+          <div class="dashboard-header">
+            <div>
+              <h2 id="dashboard-heading">Device Dashboard</h2>
+              <p class="muted" id="selected-device-id"></p>
+            </div>
+            <div class="lamp-toggle-wrap">
+              <span class="toggle-label" id="lamp-state-label">Lamp OFF</span>
+              <button
+                type="button"
+                class="toggle-btn"
+                id="lamp-on-toggle"
+                role="switch"
+                aria-checked="false"
+                aria-labelledby="lamp-state-label"
+              >
+                <span class="toggle-knob"></span>
+              </button>
+            </div>
+          </div>
+
+          <form id="settings-form" novalidate>
+            <div class="controls-grid">
+              <div class="control-item">
+                <div class="control-header">
+                  <label for="lux_threshold-num">Lux Threshold</label>
+                  <span class="range-hint">0 – 65535</span>
+                </div>
+                <div class="slider-pair">
+                  <input type="range" id="lux_threshold-range" min="0" max="65535" step="1" aria-label="Lux Threshold slider">
+                  <input type="number" id="lux_threshold-num" min="0" max="65535" step="1" required>
+                </div>
+              </div>
+
+              <div class="control-item">
+                <div class="control-header">
+                  <label for="treshold-num">Threshold (treshold)</label>
+                  <span class="range-hint">0 – 1000</span>
+                </div>
+                <div class="slider-pair">
+                  <input type="range" id="treshold-range" min="0" max="1000" step="1" aria-label="Treshold slider">
+                  <input type="number" id="treshold-num" min="0" max="1000" step="1" required>
+                </div>
+              </div>
+
+              <div class="control-item">
+                <div class="control-header">
+                  <label for="duration-num">Duration (s)</label>
+                  <span class="range-hint">5 – 7200</span>
+                </div>
+                <div class="slider-pair">
+                  <input type="range" id="duration-range" min="5" max="7200" step="1" aria-label="Duration slider">
+                  <input type="number" id="duration-num" min="5" max="7200" step="1" required>
+                </div>
+              </div>
+
+              <div class="control-item">
+                <div class="control-header">
+                  <label for="cycle_len-num">Cycle Length</label>
+                  <span class="range-hint">1 – 60</span>
+                </div>
+                <div class="slider-pair">
+                  <input type="range" id="cycle_len-range" min="1" max="60" step="1" aria-label="Cycle length slider">
+                  <input type="number" id="cycle_len-num" min="1" max="60" step="1" required>
+                </div>
+              </div>
+
+              <div class="control-item">
+                <div class="control-header">
+                  <label for="pir_sensitivity-num">PIR Sensitivity</label>
+                  <span class="range-hint">1 – 255</span>
+                </div>
+                <div class="slider-pair">
+                  <input type="range" id="pir_sensitivity-range" min="1" max="255" step="1" aria-label="PIR sensitivity slider">
+                  <input type="number" id="pir_sensitivity-num" min="1" max="255" step="1" required>
+                </div>
+              </div>
+
+              <div class="control-item">
+                <div class="control-header">
+                  <label for="safety_off-num">Safety Off (s)</label>
+                  <span class="range-hint">60 – 28800</span>
+                </div>
+                <div class="slider-pair">
+                  <input type="range" id="safety_off-range" min="60" max="28800" step="1" aria-label="Safety off slider">
+                  <input type="number" id="safety_off-num" min="60" max="28800" step="1" required>
+                </div>
+              </div>
+            </div>
+
+            <!-- Logging Toggle & Lamp Wattage -->
+            <div class="logging-panel">
+              <div class="logging-row">
+                <div>
+                  <span class="control-title" id="logging-label">Power Logging</span>
+                  <p class="muted">Enable energy usage logging for this device.</p>
+                </div>
+                <button
+                  type="button"
+                  class="toggle-btn"
+                  id="logging-toggle"
+                  role="switch"
+                  aria-checked="false"
+                  aria-labelledby="logging-label"
+                >
+                  <span class="toggle-knob"></span>
+                </button>
+              </div>
+
+              <div class="field hidden" id="wattage-field">
+                <label for="lamp_wattage-num">Lamp Wattage (1 – 5000 W)</label>
+                <input type="number" id="lamp_wattage-num" min="1" max="5000" step="1" placeholder="e.g. 60">
+              </div>
+            </div>
+
+            <div class="save-row">
+              <button type="submit" class="btn btn-primary" id="save-settings-btn">Save Settings</button>
+              <p class="form-error hidden" id="settings-error" role="alert"></p>
+            </div>
+          </form>
+
+          <!-- Danger Zone -->
+          <div class="danger-zone" aria-labelledby="danger-heading">
+            <h3 id="danger-heading">Danger Zone</h3>
+            <p class="muted">Actions below immediately affect device connectivity and hardware state.</p>
+            <div class="danger-actions">
+              <button type="button" class="btn btn-warning" id="restart-btn">Restart Device</button>
+              <button type="button" class="btn btn-danger" id="unpair-btn">Unpair</button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
