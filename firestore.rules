@@ -57,16 +57,27 @@ service cloud.firestore {
         && prev.allowedUsers.hasAll(data.allowedUsers);
     }
 
+    function isHardwarePairingUpdate() {
+      let data = request.resource.data;
+      let prev = resource.data;
+      return data.diff(prev).affectedKeys().hasOnly(['allowedUsers'])
+        && data.allowedUsers is list
+        && data.allowedUsers.size() == prev.allowedUsers.size() + 1
+        && data.allowedUsers.hasAll(prev.allowedUsers);
+    }
+
     match /devices/{deviceId} {
       allow read: if isDeviceMember(resource.data);
       allow update: if isDeviceMember(resource.data)
-        && (isValidDeviceSettingsUpdate() || isValidSelfUnpair());
+        && (isValidDeviceSettingsUpdate() || isValidSelfUnpair() || isHardwarePairingUpdate());
 
       match /pairing_requests/{requestId} {
         allow create: if isAuthenticated()
           && request.resource.data.uid == request.auth.uid
           && request.resource.data.pin is string
           && request.resource.data.pin.size() > 0;
+        allow read, delete: if isAuthenticated()
+          && request.auth.uid in get(/databases/$(database)/documents/devices/$(deviceId)).data.allowedUsers;
       }
 
       match /logs/{logId} {
