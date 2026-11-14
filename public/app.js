@@ -249,7 +249,12 @@ function subscribeToDevices() {
     devicesUnsubscribe = null;
   }
 
-  if (!auth?.currentUser) return;
+  if (!auth?.currentUser) {
+    console.warn('[DeviceSelector] subscribeToDevices aborted: auth.currentUser is null');
+    return;
+  }
+
+  console.log('[DeviceSelector] Querying devices for uid:', auth.currentUser.uid);
 
   const devicesQuery = query(
     collection(db, 'devices'),
@@ -258,14 +263,23 @@ function subscribeToDevices() {
 
   devicesUnsubscribe = onSnapshot(
     devicesQuery,
-    (snapshot) => {
+    (querySnapshot) => {
+      console.log('[DeviceSelector] querySnapshot.size:', querySnapshot.size);
+      if (querySnapshot.empty) {
+        console.warn('[DeviceSelector] querySnapshot.empty is true — no devices matched allowedUsers array-contains', auth.currentUser?.uid);
+      }
+      const selectEl = document.getElementById('device-select');
+      console.log('[DeviceSelector] target #device-select element:', selectEl);
+
       devicesById = new Map();
-      snapshot.forEach((docSnap) => {
+      querySnapshot.forEach((docSnap) => {
+        console.log('[DeviceSelector] Appending device doc.id:', docSnap.id);
         devicesById.set(docSnap.id, docSnap.data());
       });
       renderDeviceSelector();
     },
     (error) => {
+      console.error('[DeviceSelector] onSnapshot error:', error);
       showBanner(`Failed to load devices: ${error.message}`, 'error');
     }
   );
