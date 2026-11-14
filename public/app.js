@@ -12,10 +12,10 @@ import {
   query,
   where,
   onSnapshot,
-  addDoc,
+  setDoc,
   updateDoc,
   arrayRemove,
-  serverTimestamp,
+  Timestamp,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 
 const PARAM_SPECS = [
@@ -328,10 +328,11 @@ async function handlePairingSubmit(event) {
 
   els.pairSubmitBtn.disabled = true;
   try {
-    await addDoc(collection(db, 'devices', deviceId, 'pairing_requests'), {
-      uid: currentUser.uid,
+    await setDoc(doc(db, 'pairing_requests', deviceId), {
       pin,
-      createdAt: serverTimestamp(),
+      userId: auth.currentUser.uid,
+      attempts: 0,
+      expiresAt: Timestamp.fromDate(new Date(Date.now() + 5 * 60 * 1000)),
     });
     els.pairingForm.reset();
     subscribeToDevices();
