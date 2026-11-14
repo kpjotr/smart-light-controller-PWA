@@ -422,13 +422,12 @@ async function handleUnpair() {
 }
 
 const firebaseConfig = {
-  apiKey: "AIzaSyAqf2uuP-vJHV5-5m7pSh8kWUK4rFv4fFA",
-  authDomain: "okos-pilacs-vezerlo.firebaseapp.com",
-  projectId: "okos-pilacs-vezerlo",
-  storageBucket: "okos-pilacs-vezerlo.firebasestorage.app",
-  messagingSenderId: "359003066312",
-  appId: "1:359003066312:web:0712208983260df9907afd",
-  measurementId: "G-J41ZGNW1MD"
+  apiKey: "AIzaSyCymXk2RyRcQ3Rn5JSvJvJeQIMAxH0KyQU",
+  authDomain: "okospilacsvezerlo.firebaseapp.com",
+  projectId: "okospilacsvezerlo",
+  storageBucket: "okospilacsvezerlo.firebasestorage.app",
+  messagingSenderId: "934748179856",
+  appId: "1:934748179856:web:d5271c07bff1e1f9fb7715"
 };
 
 function init() {
