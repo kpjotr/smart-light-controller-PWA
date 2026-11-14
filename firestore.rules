@@ -64,6 +64,16 @@ service cloud.firestore {
         && data.allowedUsers.hasAll(prev.allowedUsers);
     }
 
+    match /pairing_requests/{deviceId} {
+      allow create, update: if isAuthenticated()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.pin is string
+        && request.resource.data.pin.size() == 6
+        && request.resource.data.attempts == 0
+        && request.resource.data.expiresAt is timestamp;
+      allow read, delete: if false;
+    }
+
     match /devices/{deviceId} {
       allow read: if isDeviceMember(resource.data);
       allow update: if isDeviceMember(resource.data)

@@ -6,7 +6,7 @@ import {
   signOut,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 import {
-  getFirestore,
+  initializeFirestore,
   collection,
   doc,
   query,
@@ -481,7 +481,7 @@ function init() {
   try {
     const app = initializeApp(firebaseConfig);
     auth = getAuth(app);
-    db = getFirestore(app);
+    db = initializeFirestore(app, { experimentalForceLongPolling: true });
 
     onAuthStateChanged(auth, (user) => {
       currentUser = user;
