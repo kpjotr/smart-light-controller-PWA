@@ -66,6 +66,7 @@ let auth = null;
 let db = null;
 let currentUser = null;
 let devicesUnsubscribe = null;
+let selectedDeviceUnsubscribe = null;
 let devicesById = new Map();
 let selectedId = '';
 let statusTimer = null;
@@ -168,12 +169,50 @@ function renderDeviceSelector() {
   if (previousId && devicesById.has(previousId)) {
     selectedId = previousId;
     els.deviceSelect.value = previousId;
-    renderDashboard(previousId);
+    if (!selectedDeviceUnsubscribe) {
+      subscribeToSelectedDevice(previousId);
+    }
   } else {
-    selectedId = '';
-    els.deviceSelect.value = '';
-    els.dashboardSection.classList.add('hidden');
+    clearSelectedDevice();
   }
+}
+
+function clearSelectedDevice() {
+  if (selectedDeviceUnsubscribe) {
+    selectedDeviceUnsubscribe();
+    selectedDeviceUnsubscribe = null;
+  }
+  selectedId = '';
+  els.deviceSelect.value = '';
+  els.dashboardSection.classList.add('hidden');
+}
+
+function subscribeToSelectedDevice(deviceId) {
+  if (selectedDeviceUnsubscribe) {
+    selectedDeviceUnsubscribe();
+    selectedDeviceUnsubscribe = null;
+  }
+
+  if (!deviceId) {
+    els.dashboardSection.classList.add('hidden');
+    return;
+  }
+
+  selectedDeviceUnsubscribe = onSnapshot(
+    doc(db, 'devices', deviceId),
+    (docSnap) => {
+      if (!docSnap.exists()) {
+        clearSelectedDevice();
+        return;
+      }
+      const data = docSnap.data();
+      devicesById.set(docSnap.id, data);
+      renderDashboard(docSnap.id);
+    },
+    (error) => {
+      showBanner(`Failed to sync device "${deviceId}": ${error.message}`, 'error');
+    }
+  );
 }
 
 function renderDashboard(deviceId) {
@@ -204,15 +243,17 @@ function renderDashboard(deviceId) {
   els.dashboardSection.classList.remove('hidden');
 }
 
-function subscribeToDevices(uid) {
+function subscribeToDevices() {
   if (devicesUnsubscribe) {
     devicesUnsubscribe();
     devicesUnsubscribe = null;
   }
 
+  if (!auth?.currentUser) return;
+
   const devicesQuery = query(
     collection(db, 'devices'),
-    where('allowedUsers', 'array-contains', uid)
+    where('allowedUsers', 'array-contains', auth.currentUser.uid)
   );
 
   devicesUnsubscribe = onSnapshot(
@@ -279,6 +320,7 @@ async function handlePairingSubmit(event) {
       createdAt: serverTimestamp(),
     });
     els.pairingForm.reset();
+    subscribeToDevices();
     showBanner(`Pairing request sent for "${deviceId}".`, 'success');
   } catch (error) {
     setFieldError(els.pairingError, error.message);
@@ -382,8 +424,7 @@ async function handleUnpair() {
     await updateDoc(doc(db, 'devices', targetId), {
       allowedUsers: arrayRemove(currentUser.uid),
     });
-    selectedId = '';
-    els.dashboardSection.classList.add('hidden');
+    clearSelectedDevice();
     showBanner(`Unpaired from "${targetId}".`, 'success');
   } catch (error) {
     showBanner(`Unpair failed: ${error.message}`, 'error');
@@ -410,8 +451,9 @@ function init() {
     selectedId = els.deviceSelect.value;
     if (selectedId) {
       renderDashboard(selectedId);
+      subscribeToSelectedDevice(selectedId);
     } else {
-      els.dashboardSection.classList.add('hidden');
+      clearSelectedDevice();
     }
   });
   els.pairingForm.addEventListener('submit', handlePairingSubmit);
@@ -433,14 +475,14 @@ function init() {
         els.appSection.classList.remove('hidden');
         els.userBar.classList.remove('hidden');
         els.userEmail.textContent = user.email || user.uid;
-        subscribeToDevices(user.uid);
+        subscribeToDevices();
       } else {
         if (devicesUnsubscribe) {
           devicesUnsubscribe();
           devicesUnsubscribe = null;
         }
+        clearSelectedDevice();
         devicesById.clear();
-        selectedId = '';
         els.userEmail.textContent = '';
         els.userBar.classList.add('hidden');
         els.appSection.classList.add('hidden');
