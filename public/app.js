@@ -15,19 +15,19 @@ import {
   setDoc,
   updateDoc,
   arrayRemove,
+  serverTimestamp,
   Timestamp,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 
 const PARAM_SPECS = [
-  { key: 'lux_threshold', min: 0, max: 65535, fallback: 500 },
-  { key: 'treshold', min: 0, max: 1000, fallback: 100 },
-  { key: 'duration', min: 5, max: 7200, fallback: 60 },
-  { key: 'cycle_len', min: 1, max: 60, fallback: 10 },
-  { key: 'pir_sensitivity', min: 1, max: 255, fallback: 128 },
-  { key: 'safety_off', min: 60, max: 28800, fallback: 3600 },
+  { key: 'threshold', label: 'Fény érzékenység', min: 1, max: 100, fallback: 50 },
+  { key: 'sensitivity', label: 'Mozgás érzékenység', min: 1, max: 100, fallback: 50 },
+  { key: 'duration', label: 'Késleltetés (mp)', min: 10, max: 600, fallback: 60 },
+  { key: 'safety_off_min', label: 'Auto kikapcs (perc)', min: 0, max: 1440, fallback: 0 },
 ];
 
-const WATTAGE_SPEC = { key: 'lamp_wattage', min: 1, max: 5000, fallback: 60 };
+const PASSKEY_REGEX = /^[A-Z0-9]{10}$/;
+const LOADING_DELAY_MS = 250;
 
 const els = {
   statusBanner: document.getElementById('status-banner'),
@@ -52,14 +52,21 @@ const els = {
   selectedDeviceId: document.getElementById('selected-device-id'),
   lampOnToggle: document.getElementById('lamp-on-toggle'),
   lampStateLabel: document.getElementById('lamp-state-label'),
+  lampPriorityInfo: document.getElementById('lamp-priority-info'),
   settingsForm: document.getElementById('settings-form'),
-  loggingToggle: document.getElementById('logging-toggle'),
-  wattageField: document.getElementById('wattage-field'),
-  wattageNum: document.getElementById('lamp_wattage-num'),
   saveSettingsBtn: document.getElementById('save-settings-btn'),
   settingsError: document.getElementById('settings-error'),
+  restartStatusWrap: document.getElementById('restart-status-wrap'),
+  restartStatusBadge: document.getElementById('restart-status-badge'),
   restartBtn: document.getElementById('restart-btn'),
   unpairBtn: document.getElementById('unpair-btn'),
+  restartModal: document.getElementById('restart-modal'),
+  restartModalCard: document.getElementById('restart-modal-card'),
+  restartModalHeader: document.getElementById('restart-modal-header'),
+  restartModalDesc: document.getElementById('restart-modal-desc'),
+  restartModalClose: document.getElementById('restart-modal-close'),
+  restartCancelBtn: document.getElementById('restart-cancel-btn'),
+  restartConfirmBtn: document.getElementById('restart-confirm-btn'),
 };
 
 let auth = null;
@@ -68,8 +75,10 @@ let currentUser = null;
 let devicesUnsubscribe = null;
 let selectedDeviceUnsubscribe = null;
 let devicesById = new Map();
+let dirtyParams = new Set();
 let selectedId = '';
 let statusTimer = null;
+let isRestartSubmitting = false;
 
 function showBanner(message, type = 'info') {
   els.statusBanner.textContent = message;
@@ -89,12 +98,12 @@ function showBanner(message, type = 'info') {
 
 function setFieldError(element, message) {
   if (!message) {
-    element.textContent = '';
-    element.classList.add('hidden');
+    element.textContent = '\u00A0';
+    element.style.visibility = 'hidden';
     return;
   }
   element.textContent = message;
-  element.classList.remove('hidden');
+  element.style.visibility = 'visible';
 }
 
 function setToggleState(buttonEl, isOn) {
@@ -107,17 +116,30 @@ function getToggleState(buttonEl) {
 
 function updateLampUI(isOn) {
   setToggleState(els.lampOnToggle, isOn);
-  els.lampStateLabel.textContent = isOn ? 'Lamp ON' : 'Lamp OFF';
+  els.lampStateLabel.textContent = isOn ? 'Lámpa: BE' : 'Lámpa: KI';
 }
 
-function updateLoggingUI(enabled) {
-  setToggleState(els.loggingToggle, enabled);
-  if (enabled) {
-    els.wattageField.classList.remove('hidden');
-    els.wattageNum.required = true;
-  } else {
-    els.wattageField.classList.add('hidden');
-    els.wattageNum.required = false;
+function updateRestartUI(isRestarting) {
+  els.restartBtn.disabled = isRestarting;
+  els.restartStatusBadge.style.visibility = isRestarting ? 'visible' : 'hidden';
+  els.restartStatusBadge.setAttribute('aria-hidden', isRestarting ? 'false' : 'true');
+}
+
+async function runWithButtonLock(buttonEl, loadingText, asyncFn) {
+  if (buttonEl.disabled) return;
+  const originalText = buttonEl.textContent;
+  buttonEl.disabled = true;
+  buttonEl.setAttribute('aria-busy', 'true');
+  const loadingTimer = setTimeout(() => {
+    buttonEl.textContent = loadingText;
+  }, LOADING_DELAY_MS);
+  try {
+    return await asyncFn();
+  } finally {
+    clearTimeout(loadingTimer);
+    buttonEl.textContent = originalText;
+    buttonEl.removeAttribute('aria-busy');
+    buttonEl.disabled = false;
   }
 }
 
@@ -127,11 +149,15 @@ function bindSliderAndNumberSync() {
     const numEl = document.getElementById(`${spec.key}-num`);
 
     rangeEl.addEventListener('input', () => {
+      dirtyParams.add(spec.key);
       numEl.value = rangeEl.value;
     });
 
     numEl.addEventListener('input', () => {
-      const parsed = Number(numEl.value);
+      dirtyParams.add(spec.key);
+      const trimmed = numEl.value.trim();
+      if (trimmed === '') return;
+      const parsed = Number(trimmed);
       if (Number.isFinite(parsed)) {
         const clamped = Math.min(spec.max, Math.max(spec.min, Math.round(parsed)));
         rangeEl.value = String(clamped);
@@ -140,13 +166,55 @@ function bindSliderAndNumberSync() {
   }
 }
 
+function applyUiErgonomics() {
+  const interactiveControls = document.querySelectorAll('button, input, select, .btn, .toggle-btn');
+  interactiveControls.forEach((control) => {
+    control.style.touchAction = 'manipulation';
+    control.style.webkitTapHighlightColor = 'transparent';
+  });
+
+  [els.authError, els.pairingError, els.settingsError].forEach((errEl) => {
+    errEl.style.minHeight = '22px';
+    setFieldError(errEl, '');
+  });
+
+  els.lampPriorityInfo.style.marginTop = '0';
+  els.lampPriorityInfo.style.marginBottom = '16px';
+
+  els.restartStatusWrap.style.minHeight = '32px';
+  els.restartStatusWrap.style.marginBottom = '12px';
+  els.restartStatusWrap.style.display = 'flex';
+  els.restartStatusWrap.style.alignItems = 'center';
+
+  els.restartStatusBadge.style.borderColor = 'var(--warning)';
+  els.restartStatusBadge.style.color = 'var(--warning)';
+  updateRestartUI(false);
+
+  els.restartModal.style.background = 'transparent';
+  els.restartModal.style.border = 'none';
+  els.restartModal.style.padding = '0';
+  els.restartModal.style.maxWidth = '440px';
+  els.restartModal.style.width = 'calc(100% - 32px)';
+  els.restartModal.style.margin = 'auto';
+  els.restartModal.style.color = 'var(--text)';
+
+  els.restartModalCard.style.marginBottom = '0';
+  els.restartModalCard.style.boxShadow = '0 20px 50px rgba(0, 0, 0, 0.55)';
+
+  els.restartModalHeader.style.marginBottom = '12px';
+  els.restartModalHeader.style.paddingBottom = '10px';
+  els.restartModalClose.style.minHeight = '44px';
+  els.restartModalClose.style.minWidth = '44px';
+  els.restartModalClose.style.padding = '8px 12px';
+}
+
 function renderDeviceSelector() {
   const previousId = selectedId;
   const options = [];
 
   const placeholder = document.createElement('option');
   placeholder.value = '';
-  placeholder.textContent = '-- Select a device --';
+  placeholder.textContent = '-- Válassz eszközt --';
   options.push(placeholder);
 
   const sortedIds = Array.from(devicesById.keys()).sort();
@@ -161,9 +229,9 @@ function renderDeviceSelector() {
   els.deviceSelect.replaceChildren(...options);
 
   if (sortedIds.length === 0) {
-    els.deviceCountHint.textContent = 'No paired devices found. Use Pair New Device to link one.';
+    els.deviceCountHint.textContent = 'Nincs párosított eszköz. Párosíts egy újat a fenti űrlapon.';
   } else {
-    els.deviceCountHint.textContent = `${sortedIds.length} paired device${sortedIds.length === 1 ? '' : 's'} available.`;
+    els.deviceCountHint.textContent = `${sortedIds.length} párosított eszköz érhető el.`;
   }
 
   if (previousId && devicesById.has(previousId)) {
@@ -183,8 +251,10 @@ function clearSelectedDevice() {
     selectedDeviceUnsubscribe = null;
   }
   selectedId = '';
+  dirtyParams.clear();
   els.deviceSelect.value = '';
   els.dashboardSection.classList.add('hidden');
+  closeRestartModal();
 }
 
 function subscribeToSelectedDevice(deviceId) {
@@ -207,37 +277,40 @@ function subscribeToSelectedDevice(deviceId) {
       }
       const data = docSnap.data();
       devicesById.set(docSnap.id, data);
-      renderDashboard(docSnap.id);
+      renderDashboard(docSnap.id, false);
     },
     (error) => {
-      showBanner(`Failed to sync device "${deviceId}": ${error.message}`, 'error');
+      showBanner(`Nem sikerült szinkronizálni a(z) "${deviceId}" eszközt: ${error.message}`, 'error');
     }
   );
 }
 
-function renderDashboard(deviceId) {
+function renderDashboard(deviceId, forcePopulate = false) {
   const data = devicesById.get(deviceId);
   if (!data) {
     els.dashboardSection.classList.add('hidden');
     return;
   }
 
-  els.selectedDeviceId.textContent = `Device ID: ${deviceId}`;
-  updateLampUI(Boolean(data.lamp_on));
+  els.selectedDeviceId.textContent = `Eszköz azonosító: ${deviceId}`;
+  updateLampUI(data.remote_lamp_on === true);
+  updateRestartUI(data.restart_requested === true);
 
   for (const spec of PARAM_SPECS) {
     const rangeEl = document.getElementById(`${spec.key}-range`);
     const numEl = document.getElementById(`${spec.key}-num`);
-    const rawVal = typeof data[spec.key] === 'number' ? data[spec.key] : spec.fallback;
+    const isFocused = document.activeElement === rangeEl || document.activeElement === numEl;
+    if (!forcePopulate && (isFocused || dirtyParams.has(spec.key))) {
+      continue;
+    }
+
+    const rawVal = typeof data[spec.key] === 'number' && Number.isFinite(data[spec.key])
+      ? data[spec.key]
+      : spec.fallback;
     const clamped = Math.min(spec.max, Math.max(spec.min, Math.round(rawVal)));
     rangeEl.value = String(clamped);
     numEl.value = String(clamped);
   }
-
-  const loggingEnabled = Boolean(data.logging_enabled);
-  updateLoggingUI(loggingEnabled);
-  const wattageVal = typeof data.lamp_wattage === 'number' ? data.lamp_wattage : WATTAGE_SPEC.fallback;
-  els.wattageNum.value = String(Math.min(WATTAGE_SPEC.max, Math.max(WATTAGE_SPEC.min, Math.round(wattageVal))));
 
   setFieldError(els.settingsError, '');
   els.dashboardSection.classList.remove('hidden');
@@ -250,11 +323,8 @@ function subscribeToDevices() {
   }
 
   if (!auth?.currentUser) {
-    console.warn('[DeviceSelector] subscribeToDevices aborted: auth.currentUser is null');
     return;
   }
-
-  console.log('[DeviceSelector] Querying devices for uid:', auth.currentUser.uid);
 
   const devicesQuery = query(
     collection(db, 'devices'),
@@ -264,23 +334,14 @@ function subscribeToDevices() {
   devicesUnsubscribe = onSnapshot(
     devicesQuery,
     (querySnapshot) => {
-      console.log('[DeviceSelector] querySnapshot.size:', querySnapshot.size);
-      if (querySnapshot.empty) {
-        console.warn('[DeviceSelector] querySnapshot.empty is true — no devices matched allowedUsers array-contains', auth.currentUser?.uid);
-      }
-      const selectEl = document.getElementById('device-select');
-      console.log('[DeviceSelector] target #device-select element:', selectEl);
-
       devicesById = new Map();
       querySnapshot.forEach((docSnap) => {
-        console.log('[DeviceSelector] Appending device doc.id:', docSnap.id);
         devicesById.set(docSnap.id, docSnap.data());
       });
       renderDeviceSelector();
     },
     (error) => {
-      console.error('[DeviceSelector] onSnapshot error:', error);
-      showBanner(`Failed to load devices: ${error.message}`, 'error');
+      showBanner(`Nem sikerült betölteni az eszközöket: ${error.message}`, 'error');
     }
   );
 }
@@ -293,82 +354,91 @@ async function handleAuthSubmit(event) {
   const password = els.authPassword.value;
 
   if (!email || !password) {
-    setFieldError(els.authError, 'Email and password are required.');
+    setFieldError(els.authError, 'Az e-mail cím és a jelszó megadása kötelező.');
     return;
   }
 
-  els.signInBtn.disabled = true;
-  try {
-    await signInWithEmailAndPassword(auth, email, password);
-    els.authForm.reset();
-  } catch (error) {
-    setFieldError(els.authError, error.message);
-  } finally {
-    els.signInBtn.disabled = false;
-  }
+  await runWithButtonLock(els.signInBtn, 'Bejelentkezés...', async () => {
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      els.authForm.reset();
+    } catch (error) {
+      setFieldError(els.authError, error.message);
+    }
+  });
 }
 
 async function handlePairingSubmit(event) {
   event.preventDefault();
   setFieldError(els.pairingError, '');
 
-  if (!currentUser) return;
+  if (!currentUser || !auth?.currentUser) return;
 
   const deviceId = els.pairDeviceId.value.trim();
-  const pin = els.pairPin.value.trim();
+  const pin = els.pairPin.value.trim().toUpperCase();
+  els.pairPin.value = pin;
 
   if (!deviceId || deviceId.includes('/')) {
-    setFieldError(els.pairingError, 'Enter a valid Device ID without "/" characters.');
+    setFieldError(els.pairingError, 'Adj meg egy érvényes eszköz azonosítót "/" karakter nélkül.');
     return;
   }
-  if (!pin) {
-    setFieldError(els.pairingError, 'Enter the pairing PIN.');
+  if (!PASSKEY_REGEX.test(pin)) {
+    setFieldError(
+      els.pairingError,
+      'A gyári biztonsági kódnak (Passkey) pontosan 10 karakteres alfanumerikus kódnak (A–Z, 0–9) kell lennie.'
+    );
     return;
   }
 
-  els.pairSubmitBtn.disabled = true;
-  try {
-    await setDoc(doc(db, 'pairing_requests', deviceId), {
-      pin,
-      userId: auth.currentUser.uid,
-      attempts: 0,
-      expiresAt: Timestamp.fromDate(new Date(Date.now() + 5 * 60 * 1000)),
-    });
-    els.pairingForm.reset();
-    subscribeToDevices();
-    showBanner(`Pairing request sent for "${deviceId}".`, 'success');
-  } catch (error) {
-    setFieldError(els.pairingError, error.message);
-  } finally {
-    els.pairSubmitBtn.disabled = false;
-  }
+  await runWithButtonLock(els.pairSubmitBtn, 'Küldés...', async () => {
+    try {
+      await setDoc(doc(db, 'pairing_requests', deviceId), {
+        pin,
+        userId: auth.currentUser.uid,
+        attempts: 0,
+        expiresAt: Timestamp.fromDate(new Date(Date.now() + 5 * 60 * 1000)),
+      });
+      els.pairingForm.reset();
+      subscribeToDevices();
+      showBanner(`Párosítási kérelem elküldve a(z) "${deviceId}" eszközhöz.`, 'success');
+    } catch (error) {
+      setFieldError(els.pairingError, error.message);
+    }
+  });
 }
 
 async function handleLampToggle() {
-  if (!selectedId) return;
-  const nextState = !getToggleState(els.lampOnToggle);
-  els.lampOnToggle.disabled = true;
-  try {
-    await updateDoc(doc(db, 'devices', selectedId), { lamp_on: nextState });
-    updateLampUI(nextState);
-    showBanner(`Lamp turned ${nextState ? 'ON' : 'OFF'}.`, 'success');
-  } catch (error) {
-    showBanner(`Failed to toggle lamp: ${error.message}`, 'error');
-  } finally {
-    els.lampOnToggle.disabled = false;
-  }
-}
+  if (!selectedId || els.lampOnToggle.disabled) return;
+  const previousState = getToggleState(els.lampOnToggle);
+  const nextState = !previousState;
 
-async function handleLoggingToggle() {
-  if (!selectedId) return;
-  const nextState = !getToggleState(els.loggingToggle);
-  updateLoggingUI(nextState);
+  els.lampOnToggle.disabled = true;
+  els.lampOnToggle.setAttribute('aria-busy', 'true');
+  const loadingTimer = setTimeout(() => {
+    els.lampStateLabel.textContent = 'Frissítés...';
+  }, LOADING_DELAY_MS);
+
   try {
-    await updateDoc(doc(db, 'devices', selectedId), { logging_enabled: nextState });
-    showBanner(`Power logging ${nextState ? 'enabled' : 'disabled'}.`, 'success');
+    await updateDoc(doc(db, 'devices', selectedId), {
+      remote_lamp_on: nextState,
+      updatedAt: serverTimestamp(),
+    });
+    clearTimeout(loadingTimer);
+    updateLampUI(nextState);
+    showBanner(
+      nextState
+        ? 'Lámpa bekapcsolva (P2 manuális mód aktív).'
+        : 'Lámpa kikapcsolva (P3 automata mód aktív).',
+      'success'
+    );
   } catch (error) {
-    updateLoggingUI(!nextState);
-    showBanner(`Failed to update logging state: ${error.message}`, 'error');
+    clearTimeout(loadingTimer);
+    updateLampUI(previousState);
+    showBanner(`Nem sikerült átkapcsolni a lámpát: ${error.message}`, 'error');
+  } finally {
+    clearTimeout(loadingTimer);
+    els.lampOnToggle.removeAttribute('aria-busy');
+    els.lampOnToggle.disabled = false;
   }
 }
 
@@ -378,74 +448,100 @@ async function handleSettingsSubmit(event) {
   if (!selectedId) return;
 
   const payload = {
-    logging_enabled: getToggleState(els.loggingToggle),
+    updatedAt: serverTimestamp(),
   };
 
   for (const spec of PARAM_SPECS) {
     const numEl = document.getElementById(`${spec.key}-num`);
-    const val = Number(numEl.value);
-    if (!Number.isInteger(val) || val < spec.min || val > spec.max) {
-      setFieldError(els.settingsError, `${spec.key} must be an integer between ${spec.min} and ${spec.max}.`);
+    const rawStr = numEl.value.trim();
+    const val = Number(rawStr);
+    if (rawStr === '' || !Number.isInteger(val) || val < spec.min || val > spec.max) {
+      setFieldError(
+        els.settingsError,
+        `A(z) "${spec.label}" értékének ${spec.min} és ${spec.max} közötti egész számnak kell lennie.`
+      );
       return;
     }
     payload[spec.key] = val;
   }
 
-  if (payload.logging_enabled) {
-    const wattage = Number(els.wattageNum.value);
-    if (!Number.isInteger(wattage) || wattage < WATTAGE_SPEC.min || wattage > WATTAGE_SPEC.max) {
-      setFieldError(
-        els.settingsError,
-        `lamp_wattage must be an integer between ${WATTAGE_SPEC.min} and ${WATTAGE_SPEC.max}.`
-      );
-      return;
+  await runWithButtonLock(els.saveSettingsBtn, 'Mentés...', async () => {
+    try {
+      await updateDoc(doc(db, 'devices', selectedId), payload);
+      dirtyParams.clear();
+      showBanner('Eszköz beállításai elmentve.', 'success');
+    } catch (error) {
+      setFieldError(els.settingsError, error.message);
     }
-    payload.lamp_wattage = wattage;
-  }
+  });
+}
 
-  els.saveSettingsBtn.disabled = true;
-  try {
-    await updateDoc(doc(db, 'devices', selectedId), payload);
-    showBanner('Device settings saved.', 'success');
-  } catch (error) {
-    setFieldError(els.settingsError, error.message);
-  } finally {
-    els.saveSettingsBtn.disabled = false;
+function openRestartModal() {
+  if (!selectedId || els.restartBtn.disabled) return;
+  els.restartModalDesc.textContent =
+    `Biztosan újra szeretnéd indítani a(z) "${selectedId}" ESP32 vezérlőt? Az újraindítás alatt az eszköz átmenetileg nem lesz elérhető.`;
+
+  if (typeof els.restartModal.showModal === 'function') {
+    if (!els.restartModal.open) {
+      els.restartModal.showModal();
+    }
+  } else {
+    els.restartModal.setAttribute('open', '');
+  }
+  els.restartCancelBtn.focus();
+}
+
+function closeRestartModal() {
+  if (typeof els.restartModal.close === 'function') {
+    if (els.restartModal.open) {
+      els.restartModal.close();
+    }
+  } else {
+    els.restartModal.removeAttribute('open');
   }
 }
 
-async function handleRestart() {
-  if (!selectedId) return;
-  if (!window.confirm(`Restart device "${selectedId}" now?`)) return;
+async function handleRestartConfirm() {
+  if (!selectedId || isRestartSubmitting) return;
+  isRestartSubmitting = true;
+  els.restartCancelBtn.disabled = true;
+  els.restartModalClose.disabled = true;
 
-  els.restartBtn.disabled = true;
-  try {
-    await updateDoc(doc(db, 'devices', selectedId), { restart: true });
-    showBanner(`Restart command sent to "${selectedId}".`, 'success');
-  } catch (error) {
-    showBanner(`Restart failed: ${error.message}`, 'error');
-  } finally {
-    els.restartBtn.disabled = false;
-  }
+  await runWithButtonLock(els.restartConfirmBtn, 'Küldés...', async () => {
+    try {
+      await updateDoc(doc(db, 'devices', selectedId), {
+        restart_requested: true,
+        updatedAt: serverTimestamp(),
+      });
+      updateRestartUI(true);
+      closeRestartModal();
+      showBanner(`Újraindítási kérelem elküldve a(z) "${selectedId}" eszközhöz.`, 'success');
+    } catch (error) {
+      showBanner(`Az újraindítás sikertelen: ${error.message}`, 'error');
+    } finally {
+      isRestartSubmitting = false;
+      els.restartCancelBtn.disabled = false;
+      els.restartModalClose.disabled = false;
+    }
+  });
 }
 
 async function handleUnpair() {
   if (!selectedId || !currentUser) return;
-  if (!window.confirm(`Unpair "${selectedId}" from your account?`)) return;
+  if (!window.confirm(`Biztosan leválasztod a(z) "${selectedId}" eszközt a fiókodról?`)) return;
 
   const targetId = selectedId;
-  els.unpairBtn.disabled = true;
-  try {
-    await updateDoc(doc(db, 'devices', targetId), {
-      allowedUsers: arrayRemove(currentUser.uid),
-    });
-    clearSelectedDevice();
-    showBanner(`Unpaired from "${targetId}".`, 'success');
-  } catch (error) {
-    showBanner(`Unpair failed: ${error.message}`, 'error');
-  } finally {
-    els.unpairBtn.disabled = false;
-  }
+  await runWithButtonLock(els.unpairBtn, 'Leválasztás...', async () => {
+    try {
+      await updateDoc(doc(db, 'devices', targetId), {
+        allowedUsers: arrayRemove(currentUser.uid),
+      });
+      clearSelectedDevice();
+      showBanner(`A(z) "${targetId}" eszköz leválasztva.`, 'success');
+    } catch (error) {
+      showBanner(`A leválasztás sikertelen: ${error.message}`, 'error');
+    }
+  });
 }
 
 const firebaseConfig = {
@@ -458,14 +554,28 @@ const firebaseConfig = {
 };
 
 function init() {
+  applyUiErgonomics();
   bindSliderAndNumberSync();
+
+  els.pairPin.addEventListener('input', () => {
+    const start = els.pairPin.selectionStart;
+    const end = els.pairPin.selectionEnd;
+    const upper = els.pairPin.value.toUpperCase();
+    if (els.pairPin.value !== upper) {
+      els.pairPin.value = upper;
+      if (start !== null && end !== null) {
+        els.pairPin.setSelectionRange(start, end);
+      }
+    }
+  });
 
   els.authForm.addEventListener('submit', handleAuthSubmit);
   els.signOutBtn.addEventListener('click', () => auth && signOut(auth));
   els.deviceSelect.addEventListener('change', () => {
     selectedId = els.deviceSelect.value;
+    dirtyParams.clear();
     if (selectedId) {
-      renderDashboard(selectedId);
+      renderDashboard(selectedId, true);
       subscribeToSelectedDevice(selectedId);
     } else {
       clearSelectedDevice();
@@ -473,9 +583,21 @@ function init() {
   });
   els.pairingForm.addEventListener('submit', handlePairingSubmit);
   els.lampOnToggle.addEventListener('click', handleLampToggle);
-  els.loggingToggle.addEventListener('click', handleLoggingToggle);
   els.settingsForm.addEventListener('submit', handleSettingsSubmit);
-  els.restartBtn.addEventListener('click', handleRestart);
+  els.restartBtn.addEventListener('click', openRestartModal);
+  els.restartModalClose.addEventListener('click', closeRestartModal);
+  els.restartCancelBtn.addEventListener('click', closeRestartModal);
+  els.restartConfirmBtn.addEventListener('click', handleRestartConfirm);
+  els.restartModal.addEventListener('cancel', (event) => {
+    if (isRestartSubmitting) {
+      event.preventDefault();
+    }
+  });
+  els.restartModal.addEventListener('click', (event) => {
+    if (event.target === els.restartModal && !isRestartSubmitting) {
+      closeRestartModal();
+    }
+  });
   els.unpairBtn.addEventListener('click', handleUnpair);
 
   try {
@@ -506,7 +628,7 @@ function init() {
       }
     });
   } catch (error) {
-    showBanner(`Firebase initialization error: ${error.message}`, 'error');
+    showBanner(`Firebase inicializálási hiba: ${error.message}`, 'error');
   }
 }
 
