@@ -29,6 +29,9 @@ const PARAM_SPECS = [
 
 const PASSKEY_REGEX = /^[A-Z0-9]{10}$/;
 const LOADING_DELAY_MS = 250;
+const PAIRING_TIMEOUT_MS = 60000;
+const PAIRING_GRACE_MS = 1500;
+const PAIRING_SUCCESS_DISPLAY_MS = 6500;
 
 const els = {
   statusBanner: document.getElementById('status-banner'),
@@ -49,6 +52,8 @@ const els = {
   pairPin: document.getElementById('pair-pin'),
   pairSubmitBtn: document.getElementById('pair-submit-btn'),
   pairingError: document.getElementById('pairing-error'),
+  pairingSpinner: document.getElementById('pairing-spinner'),
+  pairingFeedbackText: document.getElementById('pairing-feedback-text'),
   dashboardSection: document.getElementById('dashboard-section'),
   selectedDeviceId: document.getElementById('selected-device-id'),
   lampOnToggle: document.getElementById('lamp-on-toggle'),
@@ -80,8 +85,16 @@ let dirtyParams = new Set();
 let selectedId = '';
 let statusTimer = null;
 let isRestartSubmitting = false;
+const pendingPairing = {
+  deviceId: null,
+  unsubscribeReq: null,
+  timeoutId: null,
+};
+let pairingGraceTimer = null;
+let pairingFeedbackTimer = null;
+let pairSubmitDefaultText = '';
 
-function showBanner(message, type = 'info') {
+function showBanner(message, type = 'info', durationMs = 5000) {
   els.statusBanner.textContent = message;
   els.statusBanner.classList.remove('hidden', 'is-error', 'is-success');
   if (type === 'error') {
@@ -94,7 +107,7 @@ function showBanner(message, type = 'info') {
   }
   statusTimer = setTimeout(() => {
     els.statusBanner.classList.add('hidden');
-  }, 5000);
+  }, durationMs);
 }
 
 function setFieldError(element, message) {
@@ -105,6 +118,71 @@ function setFieldError(element, message) {
   }
   element.textContent = message;
   element.style.visibility = 'visible';
+}
+
+function setPairingFeedback(type, message, autoHideMs = 0) {
+  if (pairingFeedbackTimer) {
+    clearTimeout(pairingFeedbackTimer);
+    pairingFeedbackTimer = null;
+  }
+
+  els.pairingError.classList.remove('is-hidden', 'is-pending', 'is-success', 'is-error');
+  els.pairingSpinner.classList.add('hidden');
+
+  if (!message || type === 'hidden') {
+    els.pairingFeedbackText.textContent = '\u00A0';
+    els.pairingError.classList.add('is-hidden');
+    els.pairingError.setAttribute('role', 'status');
+    return;
+  }
+
+  els.pairingFeedbackText.textContent = message;
+  if (type === 'pending') {
+    els.pairingError.classList.add('is-pending');
+    els.pairingError.setAttribute('role', 'status');
+    els.pairingSpinner.classList.remove('hidden');
+  } else if (type === 'success') {
+    els.pairingError.classList.add('is-success');
+    els.pairingError.setAttribute('role', 'status');
+  } else {
+    els.pairingError.classList.add('is-error');
+    els.pairingError.setAttribute('role', 'alert');
+  }
+
+  if (autoHideMs > 0) {
+    pairingFeedbackTimer = setTimeout(() => {
+      pairingFeedbackTimer = null;
+      setPairingFeedback('hidden', '');
+    }, autoHideMs);
+  }
+}
+
+function setPairingFormPending(isPending) {
+  els.pairSubmitBtn.disabled = isPending;
+  if (isPending) {
+    els.pairSubmitBtn.setAttribute('aria-busy', 'true');
+    els.pairSubmitBtn.textContent = 'Várakozás az eszközre...';
+  } else {
+    els.pairSubmitBtn.removeAttribute('aria-busy');
+    els.pairSubmitBtn.textContent = pairSubmitDefaultText || 'Párosítási kérelem küldése';
+  }
+}
+
+function cleanupPendingPairing() {
+  if (pendingPairing.unsubscribeReq) {
+    pendingPairing.unsubscribeReq();
+    pendingPairing.unsubscribeReq = null;
+  }
+  if (pendingPairing.timeoutId) {
+    clearTimeout(pendingPairing.timeoutId);
+    pendingPairing.timeoutId = null;
+  }
+  if (pairingGraceTimer) {
+    clearTimeout(pairingGraceTimer);
+    pairingGraceTimer = null;
+  }
+  pendingPairing.deviceId = null;
+  setPairingFormPending(false);
 }
 
 function setToggleState(buttonEl, isOn) {
@@ -174,10 +252,12 @@ function applyUiErgonomics() {
     control.style.webkitTapHighlightColor = 'transparent';
   });
 
-  [els.authError, els.pairingError, els.settingsError].forEach((errEl) => {
+  [els.authError, els.settingsError].forEach((errEl) => {
     errEl.style.minHeight = '22px';
     setFieldError(errEl, '');
   });
+  pairSubmitDefaultText = els.pairSubmitBtn.textContent;
+  setPairingFeedback('hidden', '');
 
   els.lampPriorityInfo.style.marginTop = '0';
   els.lampPriorityInfo.style.marginBottom = '16px';
@@ -256,6 +336,27 @@ function clearSelectedDevice() {
   els.deviceSelect.value = '';
   els.dashboardSection.classList.add('hidden');
   closeRestartModal();
+}
+
+function selectDevice(deviceId) {
+  if (!deviceId || !devicesById.has(deviceId)) {
+    clearSelectedDevice();
+    return;
+  }
+  selectedId = deviceId;
+  dirtyParams.clear();
+  els.deviceSelect.value = deviceId;
+  renderDashboard(deviceId, true);
+  subscribeToSelectedDevice(deviceId);
+}
+
+function completePairingSuccess(deviceId) {
+  cleanupPendingPairing();
+  els.pairingForm.reset();
+  selectDevice(deviceId);
+  const successMsg = `Sikeres párosítás! A(z) ${deviceId} eszköz csatlakoztatva.`;
+  setPairingFeedback('success', successMsg, PAIRING_SUCCESS_DISPLAY_MS);
+  showBanner(successMsg, 'success', PAIRING_SUCCESS_DISPLAY_MS);
 }
 
 function subscribeToSelectedDevice(deviceId) {
@@ -341,6 +442,9 @@ function subscribeToDevices() {
         devicesById.set(docSnap.id, docSnap.data());
       });
       renderDeviceSelector();
+      if (pendingPairing.deviceId && devicesById.has(pendingPairing.deviceId)) {
+        completePairingSuccess(pendingPairing.deviceId);
+      }
     },
     (error) => {
       showBanner(`Nem sikerült betölteni az eszközöket: ${error.message}`, 'error');
@@ -372,7 +476,7 @@ async function handleAuthSubmit(event) {
 
 async function handlePairingSubmit(event) {
   event.preventDefault();
-  setFieldError(els.pairingError, '');
+  setPairingFeedback('hidden', '');
 
   if (!currentUser || !auth?.currentUser) return;
 
@@ -381,32 +485,92 @@ async function handlePairingSubmit(event) {
   els.pairPin.value = pin;
 
   if (!deviceId || deviceId.includes('/')) {
-    setFieldError(els.pairingError, 'Adj meg egy érvényes eszköz azonosítót "/" karakter nélkül.');
+    setPairingFeedback('error', 'Adj meg egy érvényes eszköz azonosítót "/" karakter nélkül.');
     return;
   }
   if (!PASSKEY_REGEX.test(pin)) {
-    setFieldError(
-      els.pairingError,
+    setPairingFeedback(
+      'error',
       'A gyári biztonsági kódnak (Passkey) pontosan 10 karakteres alfanumerikus kódnak (A–Z, 0–9) kell lennie.'
     );
     return;
   }
 
-  await runWithButtonLock(els.pairSubmitBtn, 'Küldés...', async () => {
-    try {
-      await setDoc(doc(db, 'pairing_requests', deviceId), {
-        pin,
-        userId: auth.currentUser.uid,
-        attempts: 0,
-        expiresAt: Timestamp.fromDate(new Date(Date.now() + 5 * 60 * 1000)),
-      });
-      els.pairingForm.reset();
-      subscribeToDevices();
-      showBanner(`Párosítási kérelem elküldve a(z) "${deviceId}" eszközhöz.`, 'success');
-    } catch (error) {
-      setFieldError(els.pairingError, error.message);
-    }
-  });
+  cleanupPendingPairing();
+  els.pairSubmitBtn.disabled = true;
+  els.pairSubmitBtn.setAttribute('aria-busy', 'true');
+  const sendTimer = setTimeout(() => {
+    els.pairSubmitBtn.textContent = 'Küldés...';
+  }, LOADING_DELAY_MS);
+
+  try {
+    await setDoc(doc(db, 'pairing_requests', deviceId), {
+      pin,
+      userId: auth.currentUser.uid,
+      attempts: 0,
+      expiresAt: Timestamp.fromDate(new Date(Date.now() + 5 * 60 * 1000)),
+    });
+    clearTimeout(sendTimer);
+
+    pendingPairing.deviceId = deviceId;
+    setPairingFormPending(true);
+    setPairingFeedback('pending', `Párosítás folyamatban: várakozás a(z) ${deviceId} válaszára...`);
+
+    pendingPairing.timeoutId = setTimeout(() => {
+      if (pendingPairing.deviceId !== deviceId) return;
+      cleanupPendingPairing();
+      setPairingFeedback(
+        'error',
+        'A párosítási kérelem időtúllépés miatt megszakadt (60 mp). Ellenőrizd az eszközt és próbáld újra.'
+      );
+    }, PAIRING_TIMEOUT_MS);
+
+    pendingPairing.unsubscribeReq = onSnapshot(
+      doc(db, 'pairing_requests', deviceId),
+      (snap) => {
+        if (pendingPairing.deviceId !== deviceId) return;
+
+        if (snap.exists()) {
+          const reqData = snap.data() || {};
+          if (typeof reqData.attempts === 'number' && reqData.attempts > 0) {
+            cleanupPendingPairing();
+            setPairingFeedback(
+              'error',
+              `Sikertelen párosítás: az eszköz elutasította a megadott Passkey kódot (${reqData.attempts}/3 próbálkozás).`
+            );
+          }
+          return;
+        }
+
+        if (devicesById.has(deviceId)) {
+          completePairingSuccess(deviceId);
+          return;
+        }
+
+        if (!pairingGraceTimer) {
+          pairingGraceTimer = setTimeout(() => {
+            pairingGraceTimer = null;
+            if (pendingPairing.deviceId !== deviceId) return;
+            if (devicesById.has(deviceId)) {
+              completePairingSuccess(deviceId);
+            } else {
+              cleanupPendingPairing();
+              setPairingFeedback('error', 'A párosítási kérelem lejárt vagy megszakadt.');
+            }
+          }, PAIRING_GRACE_MS);
+        }
+      },
+      (error) => {
+        if (pendingPairing.deviceId !== deviceId) return;
+        cleanupPendingPairing();
+        setPairingFeedback('error', error.message);
+      }
+    );
+  } catch (error) {
+    clearTimeout(sendTimer);
+    cleanupPendingPairing();
+    setPairingFeedback('error', error.message);
+  }
 }
 
 async function handleLampToggle() {
@@ -579,14 +743,7 @@ function init() {
   els.authForm.addEventListener('submit', handleAuthSubmit);
   els.signOutBtn.addEventListener('click', () => auth && signOut(auth));
   els.deviceSelect.addEventListener('change', () => {
-    selectedId = els.deviceSelect.value;
-    dirtyParams.clear();
-    if (selectedId) {
-      renderDashboard(selectedId, true);
-      subscribeToSelectedDevice(selectedId);
-    } else {
-      clearSelectedDevice();
-    }
+    selectDevice(els.deviceSelect.value);
   });
   els.pairingForm.addEventListener('submit', handlePairingSubmit);
   els.lampOnToggle.addEventListener('click', handleLampToggle);
@@ -621,6 +778,8 @@ function init() {
         els.userEmail.textContent = user.email || user.uid;
         subscribeToDevices();
       } else {
+        cleanupPendingPairing();
+        setPairingFeedback('hidden', '');
         if (devicesUnsubscribe) {
           devicesUnsubscribe();
           devicesUnsubscribe = null;

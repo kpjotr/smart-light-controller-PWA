@@ -84,7 +84,10 @@
                 <span class="range-hint">Add meg az eszközön található 10 karakteres gyári biztonsági kódot (A–Z, 0–9).</span>
               </div>
               <button type="submit" class="btn btn-primary" id="pair-submit-btn">Párosítási kérelem küldése</button>
-              <p class="form-error" id="pairing-error" role="alert" aria-live="polite">&nbsp;</p>
+              <div class="pairing-feedback is-hidden" id="pairing-error" role="status" aria-live="polite">
+                <span class="pairing-spinner hidden" id="pairing-spinner" aria-hidden="true"></span>
+                <span id="pairing-feedback-text">&nbsp;</span>
+              </div>
             </form>
           </section>
         </div>
