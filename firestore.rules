@@ -6,13 +6,6 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isDeviceMember(deviceData) {
-      return isAuthenticated()
-        && 'allowedUsers' in deviceData
-        && deviceData.allowedUsers is list
-        && request.auth.uid in deviceData.allowedUsers;
-    }
-
     function isBoundedInt(val, minVal, maxVal) {
       return val is int && val >= minVal && val <= maxVal;
     }
@@ -31,7 +24,8 @@ service cloud.firestore {
         'updatedAt'
       ];
 
-      return data.allowedUsers == prev.allowedUsers
+      return prev.allowedUsers is list
+        && data.allowedUsers == prev.allowedUsers
         && (!('espUid' in prev) || ('espUid' in data && data.espUid == prev.espUid))
         && changedKeys.hasOnly(allowedWritableKeys)
         && (!('threshold' in data) || isBoundedInt(data.threshold, 1, 100))
@@ -47,7 +41,8 @@ service cloud.firestore {
       let data = request.resource.data;
       let prev = resource.data;
 
-      return data.diff(prev).affectedKeys().hasOnly(['allowedUsers'])
+      return prev.allowedUsers is list
+        && data.diff(prev).affectedKeys().hasOnly(['allowedUsers'])
         && (!('espUid' in prev) || ('espUid' in data && data.espUid == prev.espUid))
         && data.allowedUsers is list
         && !(request.auth.uid in data.allowedUsers)
@@ -56,6 +51,9 @@ service cloud.firestore {
     }
 
     match /pairing_requests/{deviceId} {
+      allow get: if isAuthenticated()
+        && (resource == null || resource.data.userId == request.auth.uid);
+      allow list, delete: if false;
       allow create, update: if isAuthenticated()
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.pin is string
@@ -64,13 +62,22 @@ service cloud.firestore {
         && request.resource.data.pin.matches('^[A-Za-z0-9]{6,12}$')
         && request.resource.data.attempts == 0
         && request.resource.data.expiresAt is timestamp;
-      allow read, delete: if false;
     }
 
     match /devices/{deviceId} {
-      allow get, list: if isDeviceMember(resource.data);
+      function isAllowedUser() {
+        return isAuthenticated()
+          && resource != null
+          && ('allowedUsers' in resource.data)
+          && (request.auth.uid in resource.data.allowedUsers);
+      }
+
+      allow get: if isAllowedUser();
+      allow list: if isAuthenticated()
+        && request.query.limit <= 50
+        && request.auth.uid in resource.data.allowedUsers;
       allow create, delete: if false;
-      allow update: if isDeviceMember(resource.data)
+      allow update: if isAllowedUser()
         && (isValidDeviceSettingsUpdate() || isValidSelfUnpair());
 
       match /logs/{logId} {

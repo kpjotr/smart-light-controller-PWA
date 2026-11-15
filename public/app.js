@@ -11,6 +11,7 @@ import {
   doc,
   query,
   where,
+  limit,
   onSnapshot,
   setDoc,
   updateDoc,
@@ -328,7 +329,8 @@ function subscribeToDevices() {
 
   const devicesQuery = query(
     collection(db, 'devices'),
-    where('allowedUsers', 'array-contains', auth.currentUser.uid)
+    where('allowedUsers', 'array-contains', auth.currentUser.uid),
+    limit(50)
   );
 
   devicesUnsubscribe = onSnapshot(
@@ -532,6 +534,10 @@ async function handleUnpair() {
 
   const targetId = selectedId;
   await runWithButtonLock(els.unpairBtn, 'Leválasztás...', async () => {
+    if (selectedDeviceUnsubscribe) {
+      selectedDeviceUnsubscribe();
+      selectedDeviceUnsubscribe = null;
+    }
     try {
       await updateDoc(doc(db, 'devices', targetId), {
         allowedUsers: arrayRemove(currentUser.uid),
@@ -539,6 +545,7 @@ async function handleUnpair() {
       clearSelectedDevice();
       showBanner(`A(z) "${targetId}" eszköz leválasztva.`, 'success');
     } catch (error) {
+      subscribeToSelectedDevice(targetId);
       showBanner(`A leválasztás sikertelen: ${error.message}`, 'error');
     }
   });
