@@ -3,6 +3,7 @@ import {
   getAuth,
   onAuthStateChanged,
   signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
   signOut,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 import {
@@ -24,7 +25,7 @@ const PARAM_SPECS = [
   { key: 'threshold', label: 'Fény érzékenység', min: 1, max: 100, fallback: 50 },
   { key: 'sensitivity', label: 'Mozgás érzékenység', min: 1, max: 100, fallback: 50 },
   { key: 'duration', label: 'Késleltetés (mp)', min: 10, max: 600, fallback: 60 },
-  { key: 'safety_off_min', label: 'Auto kikapcs (perc)', min: 0, max: 1440, fallback: 0 },
+  { key: 'safety_off_min', label: 'Auto kikapcs (p)', min: 0, max: 1440, fallback: 0 },
 ];
 
 const PASSKEY_REGEX = /^[A-Z0-9]{10}$/;
@@ -32,59 +33,64 @@ const LOADING_DELAY_MS = 250;
 const PAIRING_TIMEOUT_MS = 60000;
 const PAIRING_GRACE_MS = 1500;
 const PAIRING_SUCCESS_DISPLAY_MS = 6500;
+const ONLINE_THRESHOLD_MS = 90000;
+const SVG_NS = 'http://www.w3.org/2000/svg';
 
 const els = {
-  statusBanner: document.getElementById('status-banner'),
-  userBar: document.getElementById('user-bar'),
-  userEmail: document.getElementById('user-email'),
+  helpBtn: document.getElementById('help-btn'),
   signOutBtn: document.getElementById('sign-out-btn'),
   authSection: document.getElementById('auth-section'),
   authForm: document.getElementById('auth-form'),
   authEmail: document.getElementById('auth-email'),
   authPassword: document.getElementById('auth-password'),
   signInBtn: document.getElementById('sign-in-btn'),
+  registerBtn: document.getElementById('register-btn'),
   authError: document.getElementById('auth-error'),
-  appSection: document.getElementById('app-section'),
-  deviceSelect: document.getElementById('device-select'),
-  deviceCountHint: document.getElementById('device-count-hint'),
+  pairingView: document.getElementById('pairing-view'),
   pairingForm: document.getElementById('pairing-form'),
   pairDeviceId: document.getElementById('pair-device-id'),
   pairPin: document.getElementById('pair-pin'),
   pairSubmitBtn: document.getElementById('pair-submit-btn'),
+  backToDevicesBtn: document.getElementById('back-to-devices-btn'),
   pairingError: document.getElementById('pairing-error'),
   pairingSpinner: document.getElementById('pairing-spinner'),
   pairingFeedbackText: document.getElementById('pairing-feedback-text'),
-  dashboardSection: document.getElementById('dashboard-section'),
-  selectedDeviceId: document.getElementById('selected-device-id'),
-  lampOnToggle: document.getElementById('lamp-on-toggle'),
-  lampStateLabel: document.getElementById('lamp-state-label'),
-  lampPriorityInfo: document.getElementById('lamp-priority-info'),
-  settingsForm: document.getElementById('settings-form'),
+  deviceListView: document.getElementById('device-list-view'),
+  statusBanner: document.getElementById('status-banner'),
+  deviceList: document.getElementById('device-list'),
+  openPairingBtn: document.getElementById('open-pairing-btn'),
+  settingsModal: document.getElementById('settings-modal'),
+  settingsModalDeviceName: document.getElementById('settings-modal-device-name'),
+  settingsModalStatusDot: document.getElementById('settings-modal-status-dot'),
+  settingsModalStatusText: document.getElementById('settings-modal-status-text'),
+  settingsModalClose: document.getElementById('settings-modal-close'),
+  configForm: document.getElementById('config-form'),
   saveSettingsBtn: document.getElementById('save-settings-btn'),
   settingsError: document.getElementById('settings-error'),
-  restartStatusWrap: document.getElementById('restart-status-wrap'),
-  restartStatusBadge: document.getElementById('restart-status-badge'),
   restartBtn: document.getElementById('restart-btn'),
   unpairBtn: document.getElementById('unpair-btn'),
   restartModal: document.getElementById('restart-modal'),
-  restartModalCard: document.getElementById('restart-modal-card'),
-  restartModalHeader: document.getElementById('restart-modal-header'),
   restartModalDesc: document.getElementById('restart-modal-desc'),
   restartModalClose: document.getElementById('restart-modal-close'),
   restartCancelBtn: document.getElementById('restart-cancel-btn'),
   restartConfirmBtn: document.getElementById('restart-confirm-btn'),
+  helpModal: document.getElementById('help-modal'),
+  helpModalClose: document.getElementById('help-modal-close'),
 };
 
 let auth = null;
 let db = null;
 let currentUser = null;
 let devicesUnsubscribe = null;
-let selectedDeviceUnsubscribe = null;
 let devicesById = new Map();
-let dirtyParams = new Set();
-let selectedId = '';
-let statusTimer = null;
-let isRestartSubmitting = false;
+const dirtyParams = new Set();
+const togglingDeviceIds = new Set();
+
+const uiState = {
+  showPairingView: false,
+  settingsDeviceId: null,
+};
+
 const pendingPairing = {
   deviceId: null,
   unsubscribeReq: null,
@@ -92,32 +98,72 @@ const pendingPairing = {
 };
 let pairingGraceTimer = null;
 let pairingFeedbackTimer = null;
+let statusTimer = null;
+let settingsStatusTimer = null;
+let isRestartSubmitting = false;
 let pairSubmitDefaultText = '';
 
+function syncAppHeight() {
+  document.documentElement.style.setProperty('--app-h', `${window.innerHeight}px`);
+}
+
 function showBanner(message, type = 'info', durationMs = 5000) {
+  if (statusTimer) {
+    clearTimeout(statusTimer);
+    statusTimer = null;
+  }
+  els.statusBanner.classList.remove('is-hidden', 'is-error', 'is-success');
+  if (!message) {
+    els.statusBanner.textContent = '\u00A0';
+    els.statusBanner.classList.add('is-hidden');
+    return;
+  }
   els.statusBanner.textContent = message;
-  els.statusBanner.classList.remove('hidden', 'is-error', 'is-success');
   if (type === 'error') {
     els.statusBanner.classList.add('is-error');
   } else if (type === 'success') {
     els.statusBanner.classList.add('is-success');
   }
-  if (statusTimer) {
-    clearTimeout(statusTimer);
-  }
   statusTimer = setTimeout(() => {
-    els.statusBanner.classList.add('hidden');
+    statusTimer = null;
+    els.statusBanner.classList.add('is-hidden');
+    els.statusBanner.textContent = '\u00A0';
   }, durationMs);
 }
 
 function setFieldError(element, message) {
   if (!message) {
     element.textContent = '\u00A0';
-    element.style.visibility = 'hidden';
+    element.classList.add('is-hidden');
     return;
   }
   element.textContent = message;
-  element.style.visibility = 'visible';
+  element.classList.remove('is-hidden');
+}
+
+function setSettingsStatus(type, message, autoClearMs = 0) {
+  if (settingsStatusTimer) {
+    clearTimeout(settingsStatusTimer);
+    settingsStatusTimer = null;
+  }
+  els.settingsError.classList.remove('is-hidden', 'is-error', 'is-success');
+  if (!message || type === 'hidden') {
+    els.settingsError.textContent = '\u00A0';
+    els.settingsError.classList.add('is-hidden');
+    return;
+  }
+  els.settingsError.textContent = message;
+  if (type === 'error') {
+    els.settingsError.classList.add('is-error');
+  } else if (type === 'success') {
+    els.settingsError.classList.add('is-success');
+  }
+  if (autoClearMs > 0) {
+    settingsStatusTimer = setTimeout(() => {
+      settingsStatusTimer = null;
+      setSettingsStatus('hidden', '');
+    }, autoClearMs);
+  }
 }
 
 function setPairingFeedback(type, message, autoHideMs = 0) {
@@ -164,7 +210,7 @@ function setPairingFormPending(isPending) {
     els.pairSubmitBtn.textContent = 'Várakozás az eszközre...';
   } else {
     els.pairSubmitBtn.removeAttribute('aria-busy');
-    els.pairSubmitBtn.textContent = pairSubmitDefaultText || 'Párosítási kérelem küldése';
+    els.pairSubmitBtn.textContent = pairSubmitDefaultText || 'Párosítás';
   }
 }
 
@@ -185,25 +231,6 @@ function cleanupPendingPairing() {
   setPairingFormPending(false);
 }
 
-function setToggleState(buttonEl, isOn) {
-  buttonEl.setAttribute('aria-checked', isOn ? 'true' : 'false');
-}
-
-function getToggleState(buttonEl) {
-  return buttonEl.getAttribute('aria-checked') === 'true';
-}
-
-function updateLampUI(isOn) {
-  setToggleState(els.lampOnToggle, isOn);
-  els.lampStateLabel.textContent = isOn ? 'Lámpa: BE' : 'Lámpa: KI';
-}
-
-function updateRestartUI(isRestarting) {
-  els.restartBtn.disabled = isRestarting;
-  els.restartStatusBadge.style.visibility = isRestarting ? 'visible' : 'hidden';
-  els.restartStatusBadge.setAttribute('aria-hidden', isRestarting ? 'false' : 'true');
-}
-
 async function runWithButtonLock(buttonEl, loadingText, asyncFn) {
   if (buttonEl.disabled) return;
   const originalText = buttonEl.textContent;
@@ -222,200 +249,259 @@ async function runWithButtonLock(buttonEl, loadingText, asyncFn) {
   }
 }
 
-function bindSliderAndNumberSync() {
-  for (const spec of PARAM_SPECS) {
-    const rangeEl = document.getElementById(`${spec.key}-range`);
-    const numEl = document.getElementById(`${spec.key}-num`);
-
-    rangeEl.addEventListener('input', () => {
-      dirtyParams.add(spec.key);
-      numEl.value = rangeEl.value;
-    });
-
-    numEl.addEventListener('input', () => {
-      dirtyParams.add(spec.key);
-      const trimmed = numEl.value.trim();
-      if (trimmed === '') return;
-      const parsed = Number(trimmed);
-      if (Number.isFinite(parsed)) {
-        const clamped = Math.min(spec.max, Math.max(spec.min, Math.round(parsed)));
-        rangeEl.value = String(clamped);
-      }
-    });
+function isDeviceOnline(device) {
+  if (device?.online === true) return true;
+  const lastSeen = device?.lastSeenAt;
+  if (!lastSeen) return false;
+  let ms = NaN;
+  if (typeof lastSeen.toMillis === 'function') {
+    ms = lastSeen.toMillis();
+  } else if (typeof lastSeen === 'number') {
+    ms = lastSeen;
+  } else if (typeof lastSeen === 'string') {
+    ms = Date.parse(lastSeen);
   }
+  return Number.isFinite(ms) && (Date.now() - ms) <= ONLINE_THRESHOLD_MS;
 }
 
-function applyUiErgonomics() {
-  const interactiveControls = document.querySelectorAll('button, input, select, .btn, .toggle-btn');
-  interactiveControls.forEach((control) => {
-    control.style.touchAction = 'manipulation';
-    control.style.webkitTapHighlightColor = 'transparent';
-  });
-
-  [els.authError, els.settingsError].forEach((errEl) => {
-    errEl.style.minHeight = '22px';
-    setFieldError(errEl, '');
-  });
-  pairSubmitDefaultText = els.pairSubmitBtn.textContent;
-  setPairingFeedback('hidden', '');
-
-  els.lampPriorityInfo.style.marginTop = '0';
-  els.lampPriorityInfo.style.marginBottom = '16px';
-
-  els.restartStatusWrap.style.minHeight = '32px';
-  els.restartStatusWrap.style.marginBottom = '12px';
-  els.restartStatusWrap.style.display = 'flex';
-  els.restartStatusWrap.style.alignItems = 'center';
-
-  els.restartStatusBadge.style.borderColor = 'var(--warning)';
-  els.restartStatusBadge.style.color = 'var(--warning)';
-  updateRestartUI(false);
-
-  els.restartModal.style.background = 'transparent';
-  els.restartModal.style.border = 'none';
-  els.restartModal.style.padding = '0';
-  els.restartModal.style.maxWidth = '440px';
-  els.restartModal.style.width = 'calc(100% - 32px)';
-  els.restartModal.style.margin = 'auto';
-  els.restartModal.style.color = 'var(--text)';
-
-  els.restartModalCard.style.marginBottom = '0';
-  els.restartModalCard.style.boxShadow = '0 20px 50px rgba(0, 0, 0, 0.55)';
-
-  els.restartModalHeader.style.marginBottom = '12px';
-  els.restartModalHeader.style.paddingBottom = '10px';
-  els.restartModalClose.style.minHeight = '44px';
-  els.restartModalClose.style.minWidth = '44px';
-  els.restartModalClose.style.padding = '8px 12px';
+function createSvgElement(tag, attrs = {}) {
+  const el = document.createElementNS(SVG_NS, tag);
+  for (const [key, val] of Object.entries(attrs)) {
+    el.setAttribute(key, String(val));
+  }
+  return el;
 }
 
-function renderDeviceSelector() {
-  const previousId = selectedId;
-  const options = [];
+function createBulbIconSvg() {
+  const svg = createSvgElement('svg', {
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    'stroke-width': '2',
+    'stroke-linecap': 'round',
+    'stroke-linejoin': 'round',
+    'aria-hidden': 'true',
+  });
+  svg.appendChild(createSvgElement('path', {
+    d: 'M9 18h6',
+  }));
+  svg.appendChild(createSvgElement('path', {
+    d: 'M10 22h4',
+  }));
+  svg.appendChild(createSvgElement('path', {
+    d: 'M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14',
+  }));
+  return svg;
+}
 
-  const placeholder = document.createElement('option');
-  placeholder.value = '';
-  placeholder.textContent = '-- Válassz eszközt --';
-  options.push(placeholder);
+function createGearIconSvg() {
+  const svg = createSvgElement('svg', {
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    'stroke-width': '2',
+    'stroke-linecap': 'round',
+    'stroke-linejoin': 'round',
+    'aria-hidden': 'true',
+  });
+  svg.appendChild(createSvgElement('circle', { cx: '12', cy: '12', r: '3' }));
+  svg.appendChild(createSvgElement('path', {
+    d: 'M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z',
+  }));
+  return svg;
+}
 
+function renderDeviceList() {
   const sortedIds = Array.from(devicesById.keys()).sort();
-  for (const id of sortedIds) {
-    const data = devicesById.get(id);
-    const opt = document.createElement('option');
-    opt.value = id;
-    opt.textContent = data.name ? `${data.name} (${id})` : id;
-    options.push(opt);
+  const rows = [];
+
+  for (const deviceId of sortedIds) {
+    const device = devicesById.get(deviceId) || {};
+    const displayName = device.name || deviceId;
+    const online = isDeviceOnline(device);
+    const isLampOn = device.remote_lamp_on === true;
+
+    const row = document.createElement('div');
+    row.className = 'device-row';
+    row.setAttribute('role', 'listitem');
+
+    const info = document.createElement('div');
+    info.className = 'device-info';
+
+    const nameEl = document.createElement('div');
+    nameEl.className = 'device-name';
+    nameEl.textContent = displayName;
+
+    const statusEl = document.createElement('div');
+    statusEl.className = 'device-status';
+
+    const dot = document.createElement('span');
+    dot.className = `status-dot ${online ? 'is-online' : 'is-offline'}`;
+    dot.setAttribute('aria-hidden', 'true');
+
+    const statusText = document.createElement('span');
+    statusText.textContent = online ? 'Online' : 'Offline';
+
+    statusEl.append(dot, statusText);
+    info.append(nameEl, statusEl);
+
+    const actions = document.createElement('div');
+    actions.className = 'device-actions';
+
+    const lampBtn = document.createElement('button');
+    lampBtn.type = 'button';
+    lampBtn.className = `icon-btn lamp-btn${isLampOn ? ' is-on' : ''}`;
+    lampBtn.setAttribute('aria-pressed', isLampOn ? 'true' : 'false');
+    lampBtn.title = isLampOn ? 'Lámpa: BE' : 'Lámpa: KI';
+    lampBtn.setAttribute('aria-label', `${displayName} – ${isLampOn ? 'Lámpa: BE' : 'Lámpa: KI'}`);
+    lampBtn.disabled = togglingDeviceIds.has(deviceId);
+    lampBtn.appendChild(createBulbIconSvg());
+    lampBtn.addEventListener('click', () => handleRowLampToggle(deviceId, lampBtn));
+
+    const gearBtn = document.createElement('button');
+    gearBtn.type = 'button';
+    gearBtn.className = 'icon-btn gear-btn';
+    gearBtn.title = 'Beállítások';
+    gearBtn.setAttribute('aria-label', `${displayName} – Beállítások`);
+    gearBtn.appendChild(createGearIconSvg());
+    gearBtn.addEventListener('click', () => openSettingsModal(deviceId));
+
+    actions.append(lampBtn, gearBtn);
+    row.append(info, actions);
+    rows.push(row);
   }
 
-  els.deviceSelect.replaceChildren(...options);
-
-  if (sortedIds.length === 0) {
-    els.deviceCountHint.textContent = 'Nincs párosított eszköz. Párosíts egy újat a fenti űrlapon.';
-  } else {
-    els.deviceCountHint.textContent = `${sortedIds.length} párosított eszköz érhető el.`;
-  }
-
-  if (previousId && devicesById.has(previousId)) {
-    selectedId = previousId;
-    els.deviceSelect.value = previousId;
-    if (!selectedDeviceUnsubscribe) {
-      subscribeToSelectedDevice(previousId);
-    }
-  } else {
-    clearSelectedDevice();
-  }
+  els.deviceList.replaceChildren(...rows);
 }
 
-function clearSelectedDevice() {
-  if (selectedDeviceUnsubscribe) {
-    selectedDeviceUnsubscribe();
-    selectedDeviceUnsubscribe = null;
-  }
-  selectedId = '';
-  dirtyParams.clear();
-  els.deviceSelect.value = '';
-  els.dashboardSection.classList.add('hidden');
-  closeRestartModal();
-}
-
-function selectDevice(deviceId) {
-  if (!deviceId || !devicesById.has(deviceId)) {
-    clearSelectedDevice();
+function renderCurrentView() {
+  if (!currentUser) {
+    // State 1: Login View
+    els.signOutBtn.classList.add('hidden');
+    els.authSection.classList.remove('hidden');
+    els.pairingView.classList.add('hidden');
+    els.deviceListView.classList.add('hidden');
+    closeSettingsModal();
+    closeRestartModal();
     return;
   }
-  selectedId = deviceId;
+
+  // Logged in: Kilépés is ALWAYS visible on Pairing and Device List views
+  els.signOutBtn.classList.remove('hidden');
+  els.authSection.classList.add('hidden');
+
+  const hasDevices = devicesById.size > 0;
+  if (!hasDevices || uiState.showPairingView) {
+    // State 2: Pairing View
+    els.pairingView.classList.remove('hidden');
+    els.deviceListView.classList.add('hidden');
+    els.backToDevicesBtn.classList.toggle('hidden', !hasDevices);
+  } else {
+    // State 3: Device List View
+    els.pairingView.classList.add('hidden');
+    els.deviceListView.classList.remove('hidden');
+    renderDeviceList();
+  }
+}
+
+function populateSettingsModal(deviceId, forcePopulate = false) {
+  const data = devicesById.get(deviceId);
+  if (!data) {
+    closeSettingsModal();
+    return;
+  }
+
+  els.settingsModalDeviceName.textContent = data.name || deviceId;
+
+  const online = isDeviceOnline(data);
+  els.settingsModalStatusDot.className = `status-dot ${online ? 'is-online' : 'is-offline'}`;
+  els.settingsModalStatusText.textContent = online ? 'Online' : 'Offline';
+
+  const isRestarting = data.restart_requested === true;
+  els.restartBtn.disabled = isRestarting;
+  els.restartBtn.textContent = isRestarting ? 'Újraindítás...' : 'Újraindítás';
+
+  for (const spec of PARAM_SPECS) {
+    const numEl = document.getElementById(`${spec.key}-num`);
+    const isFocused = document.activeElement === numEl;
+    if (!forcePopulate && (isFocused || dirtyParams.has(spec.key))) {
+      continue;
+    }
+    const rawVal = typeof data[spec.key] === 'number' && Number.isFinite(data[spec.key])
+      ? data[spec.key]
+      : spec.fallback;
+    const clamped = Math.min(spec.max, Math.max(spec.min, Math.round(rawVal)));
+    numEl.value = String(clamped);
+  }
+}
+
+function openDialogElement(dialogEl) {
+  if (typeof dialogEl.showModal === 'function') {
+    if (!dialogEl.open) {
+      dialogEl.showModal();
+    }
+  } else {
+    dialogEl.setAttribute('open', '');
+  }
+}
+
+function closeDialogElement(dialogEl) {
+  if (typeof dialogEl.close === 'function') {
+    if (dialogEl.open) {
+      dialogEl.close();
+    }
+  } else {
+    dialogEl.removeAttribute('open');
+  }
+}
+
+function openSettingsModal(deviceId) {
+  if (!deviceId || !devicesById.has(deviceId)) return;
+  uiState.settingsDeviceId = deviceId;
   dirtyParams.clear();
-  els.deviceSelect.value = deviceId;
-  renderDashboard(deviceId, true);
-  subscribeToSelectedDevice(deviceId);
+  setSettingsStatus('hidden', '');
+  populateSettingsModal(deviceId, true);
+  openDialogElement(els.settingsModal);
+}
+
+function closeSettingsModal() {
+  uiState.settingsDeviceId = null;
+  dirtyParams.clear();
+  setSettingsStatus('hidden', '');
+  closeDialogElement(els.settingsModal);
+}
+
+function openRestartModal() {
+  const deviceId = uiState.settingsDeviceId;
+  if (!deviceId || els.restartBtn.disabled) return;
+  const displayName = devicesById.get(deviceId)?.name || deviceId;
+  els.restartModalDesc.textContent =
+    `Biztosan újra szeretnéd indítani a(z) "${displayName}" ESP32 vezérlőt? Az újraindítás alatt az eszköz átmenetileg nem lesz elérhető.`;
+  openDialogElement(els.restartModal);
+  els.restartCancelBtn.focus();
+}
+
+function closeRestartModal() {
+  closeDialogElement(els.restartModal);
+}
+
+function openHelpModal() {
+  openDialogElement(els.helpModal);
+  els.helpModalClose.focus();
+}
+
+function closeHelpModal() {
+  closeDialogElement(els.helpModal);
 }
 
 function completePairingSuccess(deviceId) {
   cleanupPendingPairing();
   els.pairingForm.reset();
-  selectDevice(deviceId);
+  uiState.showPairingView = false;
+  renderCurrentView();
   const successMsg = `Sikeres párosítás! A(z) ${deviceId} eszköz csatlakoztatva.`;
-  setPairingFeedback('success', successMsg, PAIRING_SUCCESS_DISPLAY_MS);
+  setPairingFeedback('hidden', '');
   showBanner(successMsg, 'success', PAIRING_SUCCESS_DISPLAY_MS);
-}
-
-function subscribeToSelectedDevice(deviceId) {
-  if (selectedDeviceUnsubscribe) {
-    selectedDeviceUnsubscribe();
-    selectedDeviceUnsubscribe = null;
-  }
-
-  if (!deviceId) {
-    els.dashboardSection.classList.add('hidden');
-    return;
-  }
-
-  selectedDeviceUnsubscribe = onSnapshot(
-    doc(db, 'devices', deviceId),
-    (docSnap) => {
-      if (!docSnap.exists()) {
-        clearSelectedDevice();
-        return;
-      }
-      const data = docSnap.data();
-      devicesById.set(docSnap.id, data);
-      renderDashboard(docSnap.id, false);
-    },
-    (error) => {
-      showBanner(`Nem sikerült szinkronizálni a(z) "${deviceId}" eszközt: ${error.message}`, 'error');
-    }
-  );
-}
-
-function renderDashboard(deviceId, forcePopulate = false) {
-  const data = devicesById.get(deviceId);
-  if (!data) {
-    els.dashboardSection.classList.add('hidden');
-    return;
-  }
-
-  els.selectedDeviceId.textContent = `Eszköz azonosító: ${deviceId}`;
-  updateLampUI(data.remote_lamp_on === true);
-  updateRestartUI(data.restart_requested === true);
-
-  for (const spec of PARAM_SPECS) {
-    const rangeEl = document.getElementById(`${spec.key}-range`);
-    const numEl = document.getElementById(`${spec.key}-num`);
-    const isFocused = document.activeElement === rangeEl || document.activeElement === numEl;
-    if (!forcePopulate && (isFocused || dirtyParams.has(spec.key))) {
-      continue;
-    }
-
-    const rawVal = typeof data[spec.key] === 'number' && Number.isFinite(data[spec.key])
-      ? data[spec.key]
-      : spec.fallback;
-    const clamped = Math.min(spec.max, Math.max(spec.min, Math.round(rawVal)));
-    rangeEl.value = String(clamped);
-    numEl.value = String(clamped);
-  }
-
-  setFieldError(els.settingsError, '');
-  els.dashboardSection.classList.remove('hidden');
 }
 
 function subscribeToDevices() {
@@ -441,9 +527,20 @@ function subscribeToDevices() {
       querySnapshot.forEach((docSnap) => {
         devicesById.set(docSnap.id, docSnap.data());
       });
-      renderDeviceSelector();
+
       if (pendingPairing.deviceId && devicesById.has(pendingPairing.deviceId)) {
         completePairingSuccess(pendingPairing.deviceId);
+      } else {
+        renderCurrentView();
+      }
+
+      if (uiState.settingsDeviceId) {
+        if (devicesById.has(uiState.settingsDeviceId)) {
+          populateSettingsModal(uiState.settingsDeviceId, false);
+        } else {
+          closeRestartModal();
+          closeSettingsModal();
+        }
       }
     },
     (error) => {
@@ -467,6 +564,30 @@ async function handleAuthSubmit(event) {
   await runWithButtonLock(els.signInBtn, 'Bejelentkezés...', async () => {
     try {
       await signInWithEmailAndPassword(auth, email, password);
+      els.authForm.reset();
+    } catch (error) {
+      setFieldError(els.authError, error.message);
+    }
+  });
+}
+
+async function handleRegisterClick() {
+  setFieldError(els.authError, '');
+
+  const email = els.authEmail.value.trim();
+  const password = els.authPassword.value;
+
+  if (!email || !password || password.length < 6) {
+    setFieldError(
+      els.authError,
+      'Adj meg érvényes e-mail címet és legalább 6 karakteres jelszót.'
+    );
+    return;
+  }
+
+  await runWithButtonLock(els.registerBtn, 'Regisztráció...', async () => {
+    try {
+      await createUserWithEmailAndPassword(auth, email, password);
       els.authForm.reset();
     } catch (error) {
       setFieldError(els.authError, error.message);
@@ -573,45 +694,43 @@ async function handlePairingSubmit(event) {
   }
 }
 
-async function handleLampToggle() {
-  if (!selectedId || els.lampOnToggle.disabled) return;
-  const previousState = getToggleState(els.lampOnToggle);
-  const nextState = !previousState;
+async function handleRowLampToggle(deviceId, buttonEl) {
+  if (!deviceId || togglingDeviceIds.has(deviceId)) return;
+  const device = devicesById.get(deviceId);
+  if (!device) return;
 
-  els.lampOnToggle.disabled = true;
-  els.lampOnToggle.setAttribute('aria-busy', 'true');
-  const loadingTimer = setTimeout(() => {
-    els.lampStateLabel.textContent = 'Frissítés...';
-  }, LOADING_DELAY_MS);
+  const previousState = device.remote_lamp_on === true;
+  const nextState = !previousState;
+  togglingDeviceIds.add(deviceId);
+  buttonEl.disabled = true;
+  buttonEl.setAttribute('aria-busy', 'true');
 
   try {
-    await updateDoc(doc(db, 'devices', selectedId), {
+    await updateDoc(doc(db, 'devices', deviceId), {
       remote_lamp_on: nextState,
       updatedAt: serverTimestamp(),
     });
-    clearTimeout(loadingTimer);
-    updateLampUI(nextState);
+    const label = device.name || deviceId;
     showBanner(
       nextState
-        ? 'Lámpa bekapcsolva (P2 manuális mód aktív).'
-        : 'Lámpa kikapcsolva (P3 automata mód aktív).',
+        ? `${label}: Lámpa BE (P2 manuális mód).`
+        : `${label}: Lámpa KI (P3 automata mód).`,
       'success'
     );
   } catch (error) {
-    clearTimeout(loadingTimer);
-    updateLampUI(previousState);
     showBanner(`Nem sikerült átkapcsolni a lámpát: ${error.message}`, 'error');
   } finally {
-    clearTimeout(loadingTimer);
-    els.lampOnToggle.removeAttribute('aria-busy');
-    els.lampOnToggle.disabled = false;
+    togglingDeviceIds.delete(deviceId);
+    buttonEl.removeAttribute('aria-busy');
+    buttonEl.disabled = false;
   }
 }
 
 async function handleSettingsSubmit(event) {
   event.preventDefault();
-  setFieldError(els.settingsError, '');
-  if (!selectedId) return;
+  setSettingsStatus('hidden', '');
+  const deviceId = uiState.settingsDeviceId;
+  if (!deviceId) return;
 
   const payload = {
     updatedAt: serverTimestamp(),
@@ -622,9 +741,9 @@ async function handleSettingsSubmit(event) {
     const rawStr = numEl.value.trim();
     const val = Number(rawStr);
     if (rawStr === '' || !Number.isInteger(val) || val < spec.min || val > spec.max) {
-      setFieldError(
-        els.settingsError,
-        `A(z) "${spec.label}" értékének ${spec.min} és ${spec.max} közötti egész számnak kell lennie.`
+      setSettingsStatus(
+        'error',
+        `${spec.label}: ${spec.min}–${spec.max} közötti egész szám szükséges.`
       );
       return;
     }
@@ -633,56 +752,35 @@ async function handleSettingsSubmit(event) {
 
   await runWithButtonLock(els.saveSettingsBtn, 'Mentés...', async () => {
     try {
-      await updateDoc(doc(db, 'devices', selectedId), payload);
+      await updateDoc(doc(db, 'devices', deviceId), payload);
       dirtyParams.clear();
-      showBanner('Eszköz beállításai elmentve.', 'success');
+      setSettingsStatus('success', 'Beállítások elmentve.', 4000);
     } catch (error) {
-      setFieldError(els.settingsError, error.message);
+      setSettingsStatus('error', error.message);
     }
   });
 }
 
-function openRestartModal() {
-  if (!selectedId || els.restartBtn.disabled) return;
-  els.restartModalDesc.textContent =
-    `Biztosan újra szeretnéd indítani a(z) "${selectedId}" ESP32 vezérlőt? Az újraindítás alatt az eszköz átmenetileg nem lesz elérhető.`;
-
-  if (typeof els.restartModal.showModal === 'function') {
-    if (!els.restartModal.open) {
-      els.restartModal.showModal();
-    }
-  } else {
-    els.restartModal.setAttribute('open', '');
-  }
-  els.restartCancelBtn.focus();
-}
-
-function closeRestartModal() {
-  if (typeof els.restartModal.close === 'function') {
-    if (els.restartModal.open) {
-      els.restartModal.close();
-    }
-  } else {
-    els.restartModal.removeAttribute('open');
-  }
-}
-
 async function handleRestartConfirm() {
-  if (!selectedId || isRestartSubmitting) return;
+  const deviceId = uiState.settingsDeviceId;
+  if (!deviceId || isRestartSubmitting) return;
   isRestartSubmitting = true;
   els.restartCancelBtn.disabled = true;
   els.restartModalClose.disabled = true;
 
   await runWithButtonLock(els.restartConfirmBtn, 'Küldés...', async () => {
     try {
-      await updateDoc(doc(db, 'devices', selectedId), {
+      await updateDoc(doc(db, 'devices', deviceId), {
         restart_requested: true,
         updatedAt: serverTimestamp(),
       });
-      updateRestartUI(true);
+      els.restartBtn.disabled = true;
+      els.restartBtn.textContent = 'Újraindítás...';
       closeRestartModal();
-      showBanner(`Újraindítási kérelem elküldve a(z) "${selectedId}" eszközhöz.`, 'success');
+      setSettingsStatus('success', 'Újraindítási kérelem elküldve.', 5000);
+      showBanner(`Újraindítási kérelem elküldve: ${deviceId}.`, 'success');
     } catch (error) {
+      setSettingsStatus('error', `Az újraindítás sikertelen: ${error.message}`);
       showBanner(`Az újraindítás sikertelen: ${error.message}`, 'error');
     } finally {
       isRestartSubmitting = false;
@@ -693,24 +791,20 @@ async function handleRestartConfirm() {
 }
 
 async function handleUnpair() {
-  if (!selectedId || !currentUser) return;
-  if (!window.confirm(`Biztosan leválasztod a(z) "${selectedId}" eszközt a fiókodról?`)) return;
+  const deviceId = uiState.settingsDeviceId;
+  if (!deviceId || !currentUser) return;
+  const displayName = devicesById.get(deviceId)?.name || deviceId;
+  if (!window.confirm(`Biztosan leválasztod a(z) "${displayName}" eszközt a fiókodról?`)) return;
 
-  const targetId = selectedId;
   await runWithButtonLock(els.unpairBtn, 'Leválasztás...', async () => {
-    if (selectedDeviceUnsubscribe) {
-      selectedDeviceUnsubscribe();
-      selectedDeviceUnsubscribe = null;
-    }
     try {
-      await updateDoc(doc(db, 'devices', targetId), {
+      await updateDoc(doc(db, 'devices', deviceId), {
         allowedUsers: arrayRemove(currentUser.uid),
       });
-      clearSelectedDevice();
-      showBanner(`A(z) "${targetId}" eszköz leválasztva.`, 'success');
+      closeSettingsModal();
+      showBanner(`A(z) "${displayName}" eszköz leválasztva.`, 'success');
     } catch (error) {
-      subscribeToSelectedDevice(targetId);
-      showBanner(`A leválasztás sikertelen: ${error.message}`, 'error');
+      setSettingsStatus('error', `A leválasztás sikertelen: ${error.message}`);
     }
   });
 }
@@ -724,30 +818,18 @@ const firebaseConfig = {
   appId: "1:934748179856:web:d5271c07bff1e1f9fb7715"
 };
 
-function init() {
-  applyUiErgonomics();
-  bindSliderAndNumberSync();
-
-  els.pairPin.addEventListener('input', () => {
-    const start = els.pairPin.selectionStart;
-    const end = els.pairPin.selectionEnd;
-    const upper = els.pairPin.value.toUpperCase();
-    if (els.pairPin.value !== upper) {
-      els.pairPin.value = upper;
-      if (start !== null && end !== null) {
-        els.pairPin.setSelectionRange(start, end);
-      }
+function bindModalEvents() {
+  els.settingsModalClose.addEventListener('click', closeSettingsModal);
+  els.settingsModal.addEventListener('close', () => {
+    uiState.settingsDeviceId = null;
+    dirtyParams.clear();
+  });
+  els.settingsModal.addEventListener('click', (event) => {
+    if (event.target === els.settingsModal) {
+      closeSettingsModal();
     }
   });
 
-  els.authForm.addEventListener('submit', handleAuthSubmit);
-  els.signOutBtn.addEventListener('click', () => auth && signOut(auth));
-  els.deviceSelect.addEventListener('change', () => {
-    selectDevice(els.deviceSelect.value);
-  });
-  els.pairingForm.addEventListener('submit', handlePairingSubmit);
-  els.lampOnToggle.addEventListener('click', handleLampToggle);
-  els.settingsForm.addEventListener('submit', handleSettingsSubmit);
   els.restartBtn.addEventListener('click', openRestartModal);
   els.restartModalClose.addEventListener('click', closeRestartModal);
   els.restartCancelBtn.addEventListener('click', closeRestartModal);
@@ -762,7 +844,70 @@ function init() {
       closeRestartModal();
     }
   });
+
+  els.helpBtn.addEventListener('click', openHelpModal);
+  els.helpModalClose.addEventListener('click', closeHelpModal);
+  els.helpModal.addEventListener('click', (event) => {
+    if (event.target === els.helpModal) {
+      closeHelpModal();
+    }
+  });
+}
+
+function init() {
+  syncAppHeight();
+  window.addEventListener('orientationchange', () => {
+    syncAppHeight();
+    setTimeout(syncAppHeight, 150);
+  });
+
+  pairSubmitDefaultText = els.pairSubmitBtn.textContent;
+  setFieldError(els.authError, '');
+  setPairingFeedback('hidden', '');
+  setSettingsStatus('hidden', '');
+  showBanner('', 'info');
+
+  for (const spec of PARAM_SPECS) {
+    const numEl = document.getElementById(`${spec.key}-num`);
+    numEl.addEventListener('input', () => {
+      dirtyParams.add(spec.key);
+    });
+  }
+
+  els.pairPin.addEventListener('input', () => {
+    const start = els.pairPin.selectionStart;
+    const end = els.pairPin.selectionEnd;
+    const upper = els.pairPin.value.toUpperCase();
+    if (els.pairPin.value !== upper) {
+      els.pairPin.value = upper;
+      if (start !== null && end !== null) {
+        els.pairPin.setSelectionRange(start, end);
+      }
+    }
+  });
+
+  els.authForm.addEventListener('submit', handleAuthSubmit);
+  els.registerBtn.addEventListener('click', handleRegisterClick);
+  els.signOutBtn.addEventListener('click', () => auth && signOut(auth));
+
+  els.pairingForm.addEventListener('submit', handlePairingSubmit);
+  els.backToDevicesBtn.addEventListener('click', () => {
+    cleanupPendingPairing();
+    setPairingFeedback('hidden', '');
+    uiState.showPairingView = false;
+    renderCurrentView();
+  });
+  els.openPairingBtn.addEventListener('click', () => {
+    setPairingFeedback('hidden', '');
+    uiState.showPairingView = true;
+    renderCurrentView();
+  });
+
+  els.configForm.addEventListener('submit', handleSettingsSubmit);
   els.unpairBtn.addEventListener('click', handleUnpair);
+  bindModalEvents();
+
+  renderCurrentView();
 
   try {
     const app = initializeApp(firebaseConfig);
@@ -772,10 +917,8 @@ function init() {
     onAuthStateChanged(auth, (user) => {
       currentUser = user;
       if (user) {
-        els.authSection.classList.add('hidden');
-        els.appSection.classList.remove('hidden');
-        els.userBar.classList.remove('hidden');
-        els.userEmail.textContent = user.email || user.uid;
+        uiState.showPairingView = false;
+        renderCurrentView();
         subscribeToDevices();
       } else {
         cleanupPendingPairing();
@@ -784,13 +927,10 @@ function init() {
           devicesUnsubscribe();
           devicesUnsubscribe = null;
         }
-        clearSelectedDevice();
         devicesById.clear();
-        els.userEmail.textContent = '';
-        els.userBar.classList.add('hidden');
-        els.appSection.classList.add('hidden');
-        els.dashboardSection.classList.add('hidden');
-        els.authSection.classList.remove('hidden');
+        togglingDeviceIds.clear();
+        uiState.showPairingView = false;
+        renderCurrentView();
       }
     });
   } catch (error) {

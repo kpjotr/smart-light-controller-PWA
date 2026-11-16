@@ -11,198 +11,190 @@
   <div class="app-shell">
     <header class="app-header">
       <div class="brand">
-        <h1>Okoslámpa Vezérlő</h1>
+        <h1>Okoslámpa</h1>
         <span class="version-badge" id="app-version">__VERSION__</span>
       </div>
-      <div class="user-bar hidden" id="user-bar">
-        <span class="user-email" id="user-email"></span>
-        <button type="button" class="btn btn-secondary" id="sign-out-btn">Kijelentkezés</button>
+      <div class="header-actions">
+        <button type="button" class="btn btn-secondary btn-header" id="help-btn">Segítség</button>
+        <button type="button" class="btn btn-secondary btn-header hidden" id="sign-out-btn">Kilépés</button>
       </div>
     </header>
 
-    <div class="status-slot">
-      <div class="toast-banner hidden" id="status-banner" role="status" aria-live="polite"></div>
-    </div>
-
-    <!-- Auth Section -->
-    <main>
-      <section class="card auth-card" id="auth-section" aria-labelledby="auth-heading">
-        <h2 id="auth-heading">Bejelentkezés</h2>
-        <p class="muted">Jelentkezz be az e-mail címeddel és jelszavaddal a párosított okoslámpák kezeléséhez.</p>
-        <form id="auth-form" novalidate>
-          <div class="field">
-            <label for="auth-email">E-mail cím</label>
-            <input type="email" id="auth-email" autocomplete="email" required placeholder="nev@pelda.hu">
-          </div>
-          <div class="field">
-            <label for="auth-password">Jelszó</label>
-            <input type="password" id="auth-password" autocomplete="current-password" required minlength="6" placeholder="••••••••">
-          </div>
-          <div class="auth-actions">
-            <button type="submit" class="btn btn-primary" id="sign-in-btn">Bejelentkezés</button>
-          </div>
-          <p class="form-error" id="auth-error" role="alert" aria-live="polite">&nbsp;</p>
-        </form>
+    <main class="app-main">
+      <!-- State 1: Login View -->
+      <section class="view-scroll hidden" id="auth-section" aria-labelledby="auth-heading">
+        <div class="card auth-card">
+          <h2 id="auth-heading">Bejelentkezés</h2>
+          <p class="muted">Jelentkezz be vagy hozz létre fiókot az okoslámpáid kezeléséhez.</p>
+          <form id="auth-form" novalidate>
+            <div class="field">
+              <label for="auth-email">E-mail cím</label>
+              <input type="email" id="auth-email" autocomplete="email" required placeholder="nev@pelda.hu">
+            </div>
+            <div class="field">
+              <label for="auth-password">Jelszó</label>
+              <input type="password" id="auth-password" autocomplete="current-password" required minlength="6" placeholder="••••••••">
+            </div>
+            <div class="auth-actions">
+              <button type="submit" class="btn btn-primary" id="sign-in-btn">Bejelentkezés</button>
+              <button type="button" class="btn btn-secondary" id="register-btn">Regisztráció</button>
+            </div>
+            <p class="form-error" id="auth-error" role="alert" aria-live="polite">&nbsp;</p>
+          </form>
+        </div>
       </section>
 
-      <!-- Authenticated App Section -->
-      <div class="hidden" id="app-section">
-        <div class="top-grid">
-          <!-- Device Selector -->
-          <section class="card" aria-labelledby="selector-heading">
-            <h2 id="selector-heading">Eszközválasztó</h2>
+      <!-- State 2: Pairing View -->
+      <section class="view-scroll hidden" id="pairing-view" aria-labelledby="pairing-heading">
+        <div class="card pairing-card">
+          <h2 id="pairing-heading">Új eszköz párosítása</h2>
+          <p class="muted">Add meg az eszköz nevét és a gyári 10 karakteres biztonsági kódot a csatlakoztatáshoz.</p>
+          <form id="pairing-form" novalidate>
             <div class="field">
-              <label for="device-select">Párosított eszközök</label>
-              <select id="device-select" aria-label="Válassz egy párosított eszközt">
-                <option value="">-- Válassz eszközt --</option>
-              </select>
-            </div>
-            <p class="muted" id="device-count-hint">Eszközök betöltése...</p>
-          </section>
-
-          <!-- Pairing UI -->
-          <section class="card" aria-labelledby="pairing-heading">
-            <h2 id="pairing-heading">Új eszköz párosítása</h2>
-            <form id="pairing-form" novalidate>
-              <div class="field">
-                <label for="pair-device-id">Eszköz azonosító (Device ID)</label>
-                <input type="text" id="pair-device-id" required placeholder="pl. lamp-hallway-01">
-              </div>
-              <div class="field">
-                <label for="pair-pin">10 karakteres gyári biztonsági kód (Passkey)</label>
-                <input
-                  type="text"
-                  id="pair-pin"
-                  required
-                  minlength="10"
-                  maxlength="10"
-                  autocapitalize="characters"
-                  autocomplete="off"
-                  spellcheck="false"
-                  placeholder="pl. K7M9P2X4R8"
-                >
-                <span class="range-hint">Add meg az eszközön található 10 karakteres gyári biztonsági kódot (A–Z, 0–9).</span>
-              </div>
-              <button type="submit" class="btn btn-primary" id="pair-submit-btn">Párosítási kérelem küldése</button>
-              <div class="pairing-feedback is-hidden" id="pairing-error" role="status" aria-live="polite">
-                <span class="pairing-spinner hidden" id="pairing-spinner" aria-hidden="true"></span>
-                <span id="pairing-feedback-text">&nbsp;</span>
-              </div>
-            </form>
-          </section>
-        </div>
-
-        <!-- Device Dashboard -->
-        <section class="card dashboard-card hidden" id="dashboard-section" aria-labelledby="dashboard-heading">
-          <div class="dashboard-header">
-            <div>
-              <h2 id="dashboard-heading">Eszköz vezérlőpult</h2>
-              <p class="muted" id="selected-device-id"></p>
-            </div>
-            <div class="lamp-toggle-wrap">
-              <span class="toggle-label" id="lamp-state-label">Lámpa: KI</span>
-              <button
-                type="button"
-                class="toggle-btn"
-                id="lamp-on-toggle"
-                role="switch"
-                aria-checked="false"
-                aria-labelledby="lamp-state-label"
+              <label for="pair-device-id">Eszköz azonosító (Device ID)</label>
+              <input
+                type="text"
+                id="pair-device-id"
+                required
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="SmartLight-XXXX"
               >
-                <span class="toggle-knob"></span>
-              </button>
             </div>
-          </div>
-
-          <p class="muted" id="lamp-priority-info">
-            A manuális bekapcsolás (P2) felülbírálja a mozgás- és fényérzékelő automatikát (P3).
-          </p>
-
-          <form id="settings-form" novalidate>
-            <div class="controls-grid">
-              <div class="control-item">
-                <div class="control-header">
-                  <label for="threshold-num">Fény érzékenység (1 - 100)</label>
-                  <span class="range-hint">1 – 100</span>
-                </div>
-                <div class="slider-pair">
-                  <input type="range" id="threshold-range" min="1" max="100" step="1" aria-label="Fény érzékenység csúszka">
-                  <input type="number" id="threshold-num" min="1" max="100" step="1" required>
-                </div>
-              </div>
-
-              <div class="control-item">
-                <div class="control-header">
-                  <label for="sensitivity-num">Mozgás érzékenység (1 - 100)</label>
-                  <span class="range-hint">1 – 100</span>
-                </div>
-                <div class="slider-pair">
-                  <input type="range" id="sensitivity-range" min="1" max="100" step="1" aria-label="Mozgás érzékenység csúszka">
-                  <input type="number" id="sensitivity-num" min="1" max="100" step="1" required>
-                </div>
-              </div>
-
-              <div class="control-item">
-                <div class="control-header">
-                  <label for="duration-num">Késleltetés (mp) (10 - 600)</label>
-                  <span class="range-hint">10 – 600</span>
-                </div>
-                <div class="slider-pair">
-                  <input type="range" id="duration-range" min="10" max="600" step="1" aria-label="Késleltetés csúszka">
-                  <input type="number" id="duration-num" min="10" max="600" step="1" required>
-                </div>
-              </div>
-
-              <div class="control-item">
-                <div class="control-header">
-                  <label for="safety_off_min-num">Auto kikapcs (perc) (0 - 1440)</label>
-                  <span class="range-hint">0 – 1440</span>
-                </div>
-                <div class="slider-pair">
-                  <input type="range" id="safety_off_min-range" min="0" max="1440" step="1" aria-label="Auto kikapcs csúszka">
-                  <input type="number" id="safety_off_min-num" min="0" max="1440" step="1" required>
-                </div>
-                <p class="muted">Manuális lámpa kapcsolás biztonsági kikapcsolási időzítője. Hagyd nullán, hogy soha ne kapcsolja le!</p>
-              </div>
+            <div class="field">
+              <label for="pair-pin">10 karakteres gyári biztonsági kód (Passkey)</label>
+              <input
+                type="text"
+                id="pair-pin"
+                required
+                minlength="10"
+                maxlength="10"
+                autocapitalize="characters"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="pl. K7M9P2X4R8"
+              >
+              <span class="range-hint">Az eszköz címkéjén vagy Captive Portalján található kód (A–Z, 0–9).</span>
             </div>
-
-            <div class="save-row">
-              <button type="submit" class="btn btn-primary" id="save-settings-btn">Beállítások mentése</button>
-              <p class="form-error" id="settings-error" role="alert" aria-live="polite">&nbsp;</p>
+            <div class="pairing-actions">
+              <button type="submit" class="btn btn-primary btn-full" id="pair-submit-btn">Párosítás</button>
+              <button type="button" class="btn btn-secondary btn-full hidden" id="back-to-devices-btn">Vissza az eszközlistához</button>
+            </div>
+            <div class="pairing-feedback is-hidden" id="pairing-error" role="status" aria-live="polite">
+              <span class="pairing-spinner hidden" id="pairing-spinner" aria-hidden="true"></span>
+              <span id="pairing-feedback-text">&nbsp;</span>
             </div>
           </form>
+        </div>
+      </section>
 
-          <!-- Danger Zone -->
-          <div class="danger-zone" aria-labelledby="danger-heading">
-            <h3 id="danger-heading">Eszköz műveletek</h3>
-            <p class="muted">Az alábbi műveletek közvetlenül érintik az eszköz működését és a párosítást.</p>
-            <div id="restart-status-wrap" aria-live="polite">
-              <span class="version-badge" id="restart-status-badge" aria-hidden="true">Újraindítás folyamatban...</span>
-            </div>
-            <div class="danger-actions">
-              <button type="button" class="btn btn-warning" id="restart-btn">Újraindítás</button>
-              <button type="button" class="btn btn-danger" id="unpair-btn">Leválasztás</button>
-            </div>
-          </div>
-        </section>
-      </div>
+      <!-- State 3: Device List View -->
+      <section class="device-list-view hidden" id="device-list-view" aria-labelledby="device-list-heading">
+        <h2 class="sr-only" id="device-list-heading">Párosított eszközök</h2>
+        <div class="status-slot">
+          <div class="toast-banner is-hidden" id="status-banner" role="status" aria-live="polite">&nbsp;</div>
+        </div>
+        <div class="device-list-scroll" id="device-list-scroll">
+          <div class="device-list" id="device-list" role="list"></div>
+        </div>
+        <div class="device-list-footer">
+          <button type="button" class="btn btn-primary btn-full" id="open-pairing-btn">Új eszköz párosítása</button>
+        </div>
+      </section>
     </main>
   </div>
 
-  <!-- Restart Confirmation Modal -->
-  <dialog id="restart-modal" aria-labelledby="restart-modal-title" aria-describedby="restart-modal-desc">
-    <div class="card" id="restart-modal-card">
-      <div class="dashboard-header" id="restart-modal-header">
-        <h3 id="restart-modal-title">ESP32 vezérlő újraindítása</h3>
-        <button type="button" class="btn btn-secondary" id="restart-modal-close" aria-label="Bezárás">&times;</button>
+  <!-- Device Settings Modal (Near-Full-Viewport, Non-Scrolling) -->
+  <dialog class="app-modal settings-modal" id="settings-modal" aria-labelledby="settings-modal-device-name">
+    <div class="modal-header">
+      <div class="modal-title-group">
+        <h2 id="settings-modal-device-name">SmartLight-XXXX</h2>
+        <span class="status-pill" id="settings-modal-status">
+          <span class="status-dot is-offline" id="settings-modal-status-dot" aria-hidden="true"></span>
+          <span id="settings-modal-status-text">Offline</span>
+        </span>
       </div>
+      <button type="button" class="btn btn-secondary icon-close-btn" id="settings-modal-close" aria-label="Bezárás">&times;</button>
+    </div>
+
+    <div class="settings-modal-body">
+      <form class="modal-box" id="config-form" novalidate>
+        <h3 class="modal-box-title">Működési paraméterek</h3>
+        <div class="param-rows">
+          <div class="param-row">
+            <label for="threshold-num">Fény érzékenység (1 - 100)</label>
+            <input type="number" class="param-num-input" id="threshold-num" min="1" max="100" step="1" inputmode="numeric" required>
+          </div>
+          <div class="param-row">
+            <label for="sensitivity-num">Mozgás érzékenység (1 - 100)</label>
+            <input type="number" class="param-num-input" id="sensitivity-num" min="1" max="100" step="1" inputmode="numeric" required>
+          </div>
+          <div class="param-row">
+            <label for="duration-num">Késleltetés (mp) (10 - 600)</label>
+            <input type="number" class="param-num-input" id="duration-num" min="10" max="600" step="1" inputmode="numeric" required>
+          </div>
+          <div class="param-block">
+            <div class="param-row">
+              <label for="safety_off_min-num">Auto kikapcs (p) (0 - 1440)</label>
+              <input type="number" class="param-num-input" id="safety_off_min-num" min="0" max="1440" step="1" inputmode="numeric" required>
+            </div>
+            <p class="param-helper">Manuális kapcsolás biztonsági időzítője (0 = kikapcsolva).</p>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary btn-full" id="save-settings-btn">Beállítások mentése</button>
+        <p class="settings-status-line" id="settings-error" role="status" aria-live="polite">&nbsp;</p>
+      </form>
+
+      <div class="modal-box modal-box-danger" aria-labelledby="device-actions-heading">
+        <h3 class="modal-box-title" id="device-actions-heading">Eszközműveletek</h3>
+        <div class="modal-actions-grid">
+          <button type="button" class="btn btn-warning" id="restart-btn">Újraindítás</button>
+          <button type="button" class="btn btn-danger" id="unpair-btn">Leválasztás</button>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Restart Confirmation Modal -->
+  <dialog class="app-modal confirm-modal" id="restart-modal" aria-labelledby="restart-modal-title" aria-describedby="restart-modal-desc">
+    <div class="modal-header">
+      <h2 id="restart-modal-title">ESP32 újraindítása</h2>
+      <button type="button" class="btn btn-secondary icon-close-btn" id="restart-modal-close" aria-label="Bezárás">&times;</button>
+    </div>
+    <div class="confirm-modal-body">
       <p class="muted" id="restart-modal-desc">
         Biztosan újra szeretnéd indítani a kiválasztott ESP32 vezérlőt? Az újraindítás alatt az eszköz átmenetileg nem lesz elérhető.
       </p>
-      <div class="danger-actions">
+      <div class="modal-actions-grid">
         <button type="button" class="btn btn-secondary" id="restart-cancel-btn">Mégse</button>
         <button type="button" class="btn btn-warning" id="restart-confirm-btn">Újraindítás</button>
       </div>
+    </div>
+  </dialog>
+
+  <!-- Help Modal -->
+  <dialog class="app-modal help-modal" id="help-modal" aria-labelledby="help-modal-title">
+    <div class="modal-header">
+      <h2 id="help-modal-title">Segítség – Használati útmutató</h2>
+      <button type="button" class="btn btn-secondary icon-close-btn" id="help-modal-close" aria-label="Bezárás">&times;</button>
+    </div>
+    <div class="help-modal-body">
+      <section class="help-item">
+        <h3>1. Bejelentkezés</h3>
+        <p>Jelentkezz be meglévő e-mail címeddel és jelszavaddal, vagy hozz létre új fiókot a Regisztráció gombbal. A fejlécben lévő <strong>Kilépés</strong> gombbal bármikor biztonságosan kijelentkezhetsz.</p>
+      </section>
+      <section class="help-item">
+        <h3>2. Eszköz párosítása</h3>
+        <p>Miután a vezérlő Captive Portalján beállítottad a Wi-Fi hálózatot, 5 perces párosítási ablak nyílik meg. Add meg az eszköz nevét (<code>SmartLight-XXXX</code>) és az eszközön szereplő 10 karakteres gyári kódot (<code>Passkey</code>).</p>
+      </section>
+      <section class="help-item">
+        <h3>3. Eszközlista és Lámpa kapcsolás</h3>
+        <p>A listában valós időben láthatod az egyes eszközök <strong>Online / Offline</strong> állapotát. A lámpa ikonnal azonnal be- vagy kikapcsolhatod a világítást: a manuális bekapcsolás (<strong>P2</strong> prioritás) felülbírálja a mozgás- és fényérzékelő automatikát (<strong>P3</strong>).</p>
+      </section>
+      <section class="help-item">
+        <h3>4. Beállítások (Fogaskerék)</h3>
+        <p>A fogaskerék ikonra kattintva finomhangolhatod a 4 működési paramétert (fény- és mozgásérzékenység, késleltetés, biztonsági auto kikapcsolás), távolról újraindíthatod a vezérlőt, vagy leválaszthatod az eszközt a fiókodról.</p>
+      </section>
     </div>
   </dialog>
 
