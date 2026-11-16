@@ -28,6 +28,9 @@ body {
   margin: 0;
   padding: 0;
   height: 100%;
+  max-height: var(--app-h, 100dvh);
+  display: flex;
+  flex-direction: column;
   background: var(--bg);
   color: var(--text);
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -62,9 +65,12 @@ select {
 .app-shell {
   width: 100%;
   max-width: 720px;
+  flex: 1 1 0%;
+  min-height: 0;
   height: var(--app-h, 100dvh);
+  max-height: var(--app-h, 100dvh);
   margin: 0 auto;
-  padding: 12px 16px;
+  padding: clamp(6px, 1.5vh, 14px) 16px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -73,10 +79,10 @@ select {
 .app-header {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  flex-shrink: 0;
-  padding-bottom: 10px;
-  margin-bottom: 10px;
+  gap: clamp(4px, 0.8vh, 6px);
+  flex: 0 0 auto;
+  padding-bottom: clamp(6px, 1.2vh, 10px);
+  margin-bottom: clamp(6px, 1.2vh, 10px);
   border-bottom: 1px solid var(--border);
 }
 
@@ -147,7 +153,7 @@ select {
 }
 
 .app-main {
-  flex: 1;
+  flex: 1 1 0%;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -155,16 +161,20 @@ select {
 }
 
 .view-scroll {
-  flex: 1;
+  flex: 1 1 0%;
   min-height: 0;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 16px;
+  padding: clamp(10px, 1.8vh, 16px) 16px;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .card h2,
@@ -342,24 +352,24 @@ button:focus-visible {
 
 /* State 3: Device List View */
 .device-list-view {
-  flex: 1;
+  flex: 1 1 0%;
   min-height: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: clamp(6px, 1.2vh, 10px);
 }
 
 .status-slot {
-  flex-shrink: 0;
-  min-height: 48px;
+  flex: 0 0 auto;
+  min-height: 44px;
 }
 
 .toast-banner {
   display: flex;
   align-items: center;
-  min-height: 48px;
-  padding: 10px 14px;
+  min-height: 44px;
+  padding: 8px 14px;
   border-radius: var(--radius);
   background: var(--surface-elevated);
   border: 1px solid var(--primary);
@@ -384,7 +394,7 @@ button:focus-visible {
 }
 
 .device-list-scroll {
-  flex: 1;
+  flex: 1 1 0%;
   min-height: 0;
   overflow-y: auto;
   padding-right: 2px;
@@ -494,12 +504,17 @@ button:focus-visible {
 }
 
 .device-list-footer {
-  flex-shrink: 0;
+  flex: 0 0 auto;
   padding-top: 2px;
 }
 
 /* Modals */
-dialog.app-modal {
+dialog.app-modal,
+dialog.modal {
+  box-sizing: border-box;
+  width: calc(100vw - 12px);
+  max-width: 480px;
+  max-height: calc(var(--app-h, 100dvh) - 12px);
   margin: auto;
   padding: 0;
   border: 1px solid var(--border);
@@ -510,21 +525,27 @@ dialog.app-modal {
   overflow: hidden;
 }
 
-dialog.app-modal[open] {
+dialog.app-modal[open],
+dialog.modal[open] {
   display: flex;
   flex-direction: column;
 }
 
-dialog.app-modal::backdrop {
+dialog.app-modal::backdrop,
+dialog.modal::backdrop {
   background: rgba(2, 6, 23, 0.78);
   backdrop-filter: blur(2px);
 }
 
 dialog.settings-modal {
-  width: calc(100vw - 16px);
-  max-width: 500px;
-  height: calc(var(--app-h, 100dvh) - 16px);
-  max-height: 740px;
+  height: calc(var(--app-h, 100dvh) - 12px);
+  max-height: min(680px, calc(var(--app-h, 100dvh) - 12px));
+  padding: clamp(8px, 1.8vh, 16px);
+  gap: clamp(6px, 1.2vh, 12px);
+}
+
+dialog.settings-modal[open] {
+  justify-content: space-between;
 }
 
 dialog.confirm-modal {
@@ -532,14 +553,14 @@ dialog.confirm-modal {
   width: calc(100vw - 24px);
   max-width: 420px;
   height: auto;
-  max-height: calc(var(--app-h, 100dvh) - 24px);
+  max-height: calc(var(--app-h, 100dvh) - 12px);
 }
 
 dialog.help-modal {
-  width: calc(100vw - 16px);
-  max-width: 520px;
+  width: calc(100vw - 12px);
+  max-width: 480px;
   height: auto;
-  max-height: min(740px, calc(var(--app-h, 100dvh) - 16px));
+  max-height: min(680px, calc(var(--app-h, 100dvh) - 12px));
 }
 
 .modal-header {
@@ -547,9 +568,13 @@ dialog.help-modal {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  flex-shrink: 0;
-  padding: 12px 14px;
+  flex: 0 0 auto;
+  padding: clamp(8px, 1.4vh, 12px) 14px;
   border-bottom: 1px solid var(--border);
+}
+
+dialog.settings-modal .modal-header {
+  padding: 0 0 clamp(6px, 1vh, 10px);
 }
 
 .modal-header h2 {
@@ -593,24 +618,28 @@ dialog.help-modal {
 }
 
 .settings-modal-body {
-  flex: 1;
+  flex: 1 1 0%;
   min-height: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: 10px;
-  padding: 12px 14px;
+  gap: clamp(6px, 1.2vh, 10px);
+  padding: 0;
 }
 
-.modal-box {
+.modal-box,
+.modal-section,
+.device-actions-box {
   background: var(--surface-elevated);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 12px;
+  padding: clamp(6px, 1.2vh, 12px);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: clamp(4px, 1vh, 10px);
+  min-height: 0;
+  flex-shrink: 1;
 }
 
 .modal-box-danger {
@@ -631,20 +660,20 @@ dialog.help-modal {
 .param-rows {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: clamp(4px, 0.9vh, 8px);
 }
 
 .param-block {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
 }
 
 .param-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
 }
 
 .param-row label {
@@ -663,16 +692,16 @@ dialog.help-modal {
 
 .param-helper {
   margin: 0;
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   color: var(--text-muted);
-  line-height: 1.3;
+  line-height: 1.25;
 }
 
 .settings-status-line {
-  min-height: 20px;
-  line-height: 20px;
+  min-height: 18px;
+  line-height: 18px;
   margin: 0;
-  font-size: 0.84rem;
+  font-size: 0.82rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -766,9 +795,66 @@ dialog.help-modal {
   }
 }
 
+@media (max-height: 700px) {
+  .field {
+    gap: 4px;
+    margin-bottom: 10px;
+  }
+
+  .pairing-feedback {
+    min-height: 46px;
+    margin-top: 8px;
+    padding: 8px 10px;
+    font-size: 0.85rem;
+  }
+
+  dialog.settings-modal {
+    padding: 8px 10px;
+    gap: 6px;
+  }
+
+  dialog.settings-modal .modal-header {
+    padding-bottom: 6px;
+  }
+
+  .settings-modal-body {
+    gap: 6px;
+  }
+
+  .modal-box,
+  .modal-section,
+  .device-actions-box {
+    padding: 7px 10px;
+    gap: 5px;
+  }
+
+  .modal-box-title {
+    font-size: 0.86rem;
+  }
+
+  .param-rows {
+    gap: 4px;
+  }
+
+  .param-row label {
+    font-size: 0.83rem;
+  }
+
+  .param-helper {
+    font-size: 0.75rem;
+    line-height: 1.2;
+  }
+
+  .settings-status-line {
+    min-height: 16px;
+    line-height: 16px;
+    font-size: 0.78rem;
+  }
+}
+
 @media (min-width: 640px) {
   .app-shell {
-    padding: 16px 24px;
+    padding: clamp(8px, 1.5vh, 16px) 24px;
   }
 
   .brand h1 {

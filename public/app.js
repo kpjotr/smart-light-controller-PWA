@@ -103,8 +103,17 @@ let settingsStatusTimer = null;
 let isRestartSubmitting = false;
 let pairSubmitDefaultText = '';
 
-function syncAppHeight() {
-  document.documentElement.style.setProperty('--app-h', `${window.innerHeight}px`);
+function isTextInputFocused() {
+  const active = document.activeElement;
+  if (!active || active.tagName !== 'INPUT') return false;
+  const type = (active.getAttribute('type') || 'text').toLowerCase();
+  return ['text', 'email', 'password', 'number', 'search', 'tel', 'url'].includes(type);
+}
+
+function syncAppHeight(force = false) {
+  if (!force && isTextInputFocused()) return;
+  const vh = window.visualViewport?.height || window.innerHeight;
+  document.documentElement.style.setProperty('--app-h', `${Math.round(vh)}px`);
 }
 
 function showBanner(message, type = 'info', durationMs = 5000) {
@@ -835,11 +844,15 @@ function bindModalEvents() {
 }
 
 function init() {
-  syncAppHeight();
+  syncAppHeight(true);
+  window.addEventListener('load', () => syncAppHeight(true));
+  window.addEventListener('resize', () => syncAppHeight(false));
   window.addEventListener('orientationchange', () => {
-    syncAppHeight();
-    setTimeout(syncAppHeight, 150);
+    syncAppHeight(true);
+    setTimeout(() => syncAppHeight(true), 150);
   });
+  window.visualViewport?.addEventListener('resize', () => syncAppHeight(false));
+  document.addEventListener('focusout', () => setTimeout(() => syncAppHeight(false), 120));
 
   pairSubmitDefaultText = els.pairSubmitBtn.textContent;
   setFieldError(els.authError, '');

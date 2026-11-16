@@ -109,7 +109,7 @@
   </div>
 
   <!-- Device Settings Modal (Near-Full-Viewport, Non-Scrolling) -->
-  <dialog class="app-modal settings-modal" id="settings-modal" aria-labelledby="settings-modal-device-name">
+  <dialog class="app-modal modal settings-modal" id="settings-modal" aria-labelledby="settings-modal-device-name">
     <div class="modal-header">
       <div class="modal-title-group">
         <h2 id="settings-modal-device-name">SmartLight-XXXX</h2>
@@ -122,7 +122,7 @@
     </div>
 
     <div class="settings-modal-body">
-      <form class="modal-box" id="config-form" novalidate>
+      <form class="modal-box modal-section" id="config-form" novalidate>
         <h3 class="modal-box-title">Működési paraméterek</h3>
         <div class="param-rows">
           <div class="param-row">
@@ -149,7 +149,7 @@
         <p class="settings-status-line" id="settings-error" role="status" aria-live="polite">&nbsp;</p>
       </form>
 
-      <div class="modal-box modal-box-danger" aria-labelledby="device-actions-heading">
+      <div class="modal-box modal-section device-actions-box modal-box-danger" aria-labelledby="device-actions-heading">
         <h3 class="modal-box-title" id="device-actions-heading">Eszközműveletek</h3>
         <div class="modal-actions-grid">
           <button type="button" class="btn btn-warning" id="restart-btn">Újraindítás</button>
@@ -160,7 +160,7 @@
   </dialog>
 
   <!-- Restart Confirmation Modal -->
-  <dialog class="app-modal confirm-modal" id="restart-modal" aria-labelledby="restart-modal-title" aria-describedby="restart-modal-desc">
+  <dialog class="app-modal modal confirm-modal" id="restart-modal" aria-labelledby="restart-modal-title" aria-describedby="restart-modal-desc">
     <div class="modal-header">
       <h2 id="restart-modal-title">ESP32 újraindítása</h2>
       <button type="button" class="btn btn-secondary icon-close-btn" id="restart-modal-close" aria-label="Bezárás">&times;</button>
@@ -177,7 +177,7 @@
   </dialog>
 
   <!-- Help Modal -->
-  <dialog class="app-modal help-modal" id="help-modal" aria-labelledby="help-modal-title">
+  <dialog class="app-modal modal help-modal" id="help-modal" aria-labelledby="help-modal-title">
     <div class="modal-header">
       <h2 id="help-modal-title">Segítség – Használati útmutató</h2>
       <button type="button" class="btn btn-secondary icon-close-btn" id="help-modal-close" aria-label="Bezárás">&times;</button>
