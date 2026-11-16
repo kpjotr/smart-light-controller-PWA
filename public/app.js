@@ -327,8 +327,12 @@ function renderDeviceList() {
   for (const deviceId of sortedIds) {
     const device = devicesById.get(deviceId) || {};
     const displayName = device.name || deviceId;
-    const online = isDeviceOnline(device);
-    const isLampOn = device.remote_lamp_on === true;
+    const isOnline = isDeviceOnline(device);
+    const isManualOn = Boolean(device.remote_lamp_on);
+    const isSensorHoldingLamp = Boolean(
+      device.auto_lamp_on || device.sensor_lamp_on || (device.lamp_is_on && !isManualOn)
+    );
+    const isAutoActive = isOnline && !isManualOn && isSensorHoldingLamp;
 
     const row = document.createElement('div');
     row.className = 'device-row';
@@ -345,11 +349,11 @@ function renderDeviceList() {
     statusEl.className = 'device-status';
 
     const dot = document.createElement('span');
-    dot.className = `status-dot ${online ? 'is-online' : 'is-offline'}`;
+    dot.className = `status-dot ${isOnline ? 'is-online' : 'is-offline'}`;
     dot.setAttribute('aria-hidden', 'true');
 
     const statusText = document.createElement('span');
-    statusText.textContent = online ? 'Online' : 'Offline';
+    statusText.textContent = isOnline ? 'Online' : 'Offline';
 
     statusEl.append(dot, statusText);
     info.append(nameEl, statusEl);
@@ -357,25 +361,43 @@ function renderDeviceList() {
     const actions = document.createElement('div');
     actions.className = 'device-actions';
 
+    const autoIndicator = document.createElement('span');
+    autoIndicator.className = `auto-indicator${isAutoActive ? ' is-active' : ''}`;
+    autoIndicator.setAttribute('aria-hidden', 'true');
+    autoIndicator.textContent = 'A';
+
     const lampBtn = document.createElement('button');
     lampBtn.type = 'button';
-    lampBtn.className = `icon-btn lamp-btn${isLampOn ? ' is-on' : ''}`;
-    lampBtn.setAttribute('aria-pressed', isLampOn ? 'true' : 'false');
-    lampBtn.title = isLampOn ? 'Lámpa: BE' : 'Lámpa: KI';
-    lampBtn.setAttribute('aria-label', `${displayName} – ${isLampOn ? 'Lámpa: BE' : 'Lámpa: KI'}`);
-    lampBtn.disabled = togglingDeviceIds.has(deviceId);
+    if (!isOnline) {
+      lampBtn.className = 'icon-btn lamp-btn lamp-btn--offline';
+      lampBtn.disabled = true;
+      lampBtn.title = 'Eszköz offline – a lámpa távolról nem kapcsolható';
+      lampBtn.setAttribute('aria-label', `${displayName} – Eszköz offline`);
+    } else if (isManualOn) {
+      lampBtn.className = 'icon-btn lamp-btn lamp-btn--on is-on';
+      lampBtn.disabled = togglingDeviceIds.has(deviceId);
+      lampBtn.title = 'Manuális világítás: BE';
+      lampBtn.setAttribute('aria-label', `${displayName} – Manuális világítás: BE`);
+    } else {
+      lampBtn.className = 'icon-btn lamp-btn btn-accent-highlight';
+      lampBtn.disabled = togglingDeviceIds.has(deviceId);
+      lampBtn.title = 'Manuális világítás: KI';
+      lampBtn.setAttribute('aria-label', `${displayName} – Manuális világítás: KI`);
+    }
+    lampBtn.setAttribute('aria-pressed', isManualOn ? 'true' : 'false');
     lampBtn.appendChild(createBulbIconSvg());
     lampBtn.addEventListener('click', () => handleRowLampToggle(deviceId, lampBtn));
 
     const gearBtn = document.createElement('button');
     gearBtn.type = 'button';
-    gearBtn.className = 'icon-btn gear-btn';
+    gearBtn.className = 'icon-btn gear-btn btn-accent-highlight';
+    gearBtn.disabled = false;
     gearBtn.title = 'Beállítások';
     gearBtn.setAttribute('aria-label', `${displayName} – Beállítások`);
     gearBtn.appendChild(createGearIconSvg());
     gearBtn.addEventListener('click', () => openSettingsModal(deviceId));
 
-    actions.append(lampBtn, gearBtn);
+    actions.append(autoIndicator, lampBtn, gearBtn);
     row.append(info, actions);
     rows.push(row);
   }
@@ -686,9 +708,9 @@ async function handlePairingSubmit(event) {
 async function handleRowLampToggle(deviceId, buttonEl) {
   if (!deviceId || togglingDeviceIds.has(deviceId)) return;
   const device = devicesById.get(deviceId);
-  if (!device) return;
+  if (!device || !isDeviceOnline(device)) return;
 
-  const previousState = device.remote_lamp_on === true;
+  const previousState = Boolean(device.remote_lamp_on);
   const nextState = !previousState;
   togglingDeviceIds.add(deviceId);
   buttonEl.disabled = true;
@@ -699,11 +721,10 @@ async function handleRowLampToggle(deviceId, buttonEl) {
       remote_lamp_on: nextState,
       updatedAt: serverTimestamp(),
     });
-    const label = device.name || deviceId;
     showBanner(
       nextState
-        ? `${label}: Lámpa BE (P2 manuális mód).`
-        : `${label}: Lámpa KI (P3 automata mód).`,
+        ? `${deviceId}: Manuális világítás BE.`
+        : `${deviceId}: Manuális világítás KI (automatikus mód aktív).`,
       'success'
     );
   } catch (error) {
@@ -711,7 +732,8 @@ async function handleRowLampToggle(deviceId, buttonEl) {
   } finally {
     togglingDeviceIds.delete(deviceId);
     buttonEl.removeAttribute('aria-busy');
-    buttonEl.disabled = false;
+    const latestDevice = devicesById.get(deviceId);
+    buttonEl.disabled = !latestDevice || !isDeviceOnline(latestDevice);
   }
 }
 
