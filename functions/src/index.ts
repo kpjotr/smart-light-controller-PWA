@@ -176,115 +176,119 @@ export const verifyPairing = onRequest(async (req, res) => {
     return;
   }
 
-  // SIKERES PÁROSÍTÁS: Létrehozzuk/frissítjük a devices/{deviceId} dokumentumot
+  // SIKERES PÁROSÍTÁS: Custom Token + RTDB init, majd Firestore tranzakció
   const deviceRef = db.collection("devices").doc(deviceId);
-  const resolved = await db.runTransaction(async (tx) => {
-    const deviceSnap = await tx.get(deviceRef);
-    const existing = deviceSnap.exists ? (deviceSnap.data() ?? {}) : {};
+  let customToken = "";
+  try {
+    const initialSnap = await deviceRef.get();
+    const initialData = initialSnap.exists ? (initialSnap.data() ?? {}) : {};
+    const initialThr = isIntInRange(initialData.threshold, 1, 100) ?
+      initialData.threshold : 50;
+    const initialSens = isIntInRange(initialData.sensitivity, 1, 100) ?
+      initialData.sensitivity : 50;
+    const initialDur = isIntInRange(initialData.duration, 10, 600) ?
+      initialData.duration : 60;
+    const initialSafe = isIntInRange(initialData.safety_off_min, 0, 1440) ?
+      initialData.safety_off_min : 0;
+    const initialLamp = typeof initialData.remote_lamp_on === "boolean" ?
+      initialData.remote_lamp_on : false;
 
-    const existingCustomNames = existing.customNames;
-    const customNames: Record<string, string> =
-      existingCustomNames &&
-      typeof existingCustomNames === "object" &&
-      !Array.isArray(existingCustomNames) ?
-        {...(existingCustomNames as Record<string, string>)} :
-        {};
-
-    if (rawCustomName.length > 0) {
-      customNames[data.userId] = rawCustomName;
-    } else {
-      delete customNames[data.userId];
-    }
-
-    const updatePayload: Record<string, unknown> = {
-      allowedUsers: admin.firestore.FieldValue.arrayUnion(data.userId, espUid),
-      espUid,
-      customNames,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    };
-
-    const currentThr = isIntInRange(existing.threshold, 1, 100) ?
-      existing.threshold : 50;
-    if (!isIntInRange(existing.threshold, 1, 100)) {
-      updatePayload.threshold = currentThr;
-    }
-
-    const currentSens = isIntInRange(existing.sensitivity, 1, 100) ?
-      existing.sensitivity : 50;
-    if (!isIntInRange(existing.sensitivity, 1, 100)) {
-      updatePayload.sensitivity = currentSens;
-    }
-
-    const currentDur = isIntInRange(existing.duration, 10, 600) ?
-      existing.duration : 60;
-    if (!isIntInRange(existing.duration, 10, 600)) {
-      updatePayload.duration = currentDur;
-    }
-
-    const currentSafe = isIntInRange(existing.safety_off_min, 0, 1440) ?
-      existing.safety_off_min : 0;
-    if (!isIntInRange(existing.safety_off_min, 0, 1440)) {
-      updatePayload.safety_off_min = currentSafe;
-    }
-
-    const currentRemoteLampOn = typeof existing.remote_lamp_on === "boolean" ?
-      existing.remote_lamp_on : false;
-    if (typeof existing.remote_lamp_on !== "boolean") {
-      updatePayload.remote_lamp_on = currentRemoteLampOn;
-    }
-
-    if (typeof existing.restart_requested !== "boolean") {
-      updatePayload.restart_requested = false;
-    }
-
-    if (
-      typeof existing.total_on_seconds !== "number" ||
-      !Number.isFinite(existing.total_on_seconds)
-    ) {
-      updatePayload.total_on_seconds = 0;
-    }
-
-    tx.set(deviceRef, updatePayload, {merge: true});
-    tx.delete(pairingRef);
-
-    return {
-      currentThr,
-      currentSens,
-      currentDur,
-      currentSafe,
-      currentRemoteLampOn,
-    };
-  });
-
-  await Promise.all([
-    rtdb.ref(`acl/${deviceId}`).update({
+    const aclMap: Record<string, boolean> = {
       [data.userId]: true,
       [espUid]: true,
-    }),
-    rtdb.ref(`live/${deviceId}`).set({
-      cmd: {
-        lamp: resolved.currentRemoteLampOn,
-        restart: false,
-        thr: resolved.currentThr,
-        sens: resolved.currentSens,
-        dur: resolved.currentDur,
-        safe: resolved.currentSafe,
-      },
-      state: {
-        on: false,
-        auto: false,
-        lux: 0,
-        mot: false,
-        ts: ServerValue.TIMESTAMP,
-        energy_delta_sec: 0,
-      },
-    }),
-  ]);
+    };
+    for (const uid of toUidList(initialData.allowedUsers)) {
+      aclMap[uid] = true;
+    }
 
-  const customToken = await getAuth().createCustomToken(espUid, {
-    role: "device",
-    deviceId,
-  });
+    customToken = await getAuth().createCustomToken(espUid, {
+      role: "device",
+      deviceId,
+    });
+
+    await Promise.all([
+      rtdb.ref(`acl/${deviceId}`).update(aclMap),
+      rtdb.ref(`live/${deviceId}`).set({
+        cmd: {
+          lamp: initialLamp,
+          restart: false,
+          thr: initialThr,
+          sens: initialSens,
+          dur: initialDur,
+          safe: initialSafe,
+        },
+        state: {
+          on: false,
+          auto: false,
+          lux: 0,
+          mot: false,
+          ts: ServerValue.TIMESTAMP,
+          energy_delta_sec: 0,
+        },
+      }),
+    ]);
+
+    await db.runTransaction(async (tx) => {
+      const deviceSnap = await tx.get(deviceRef);
+      const existing = deviceSnap.exists ? (deviceSnap.data() ?? {}) : {};
+
+      const existingCustomNames = existing.customNames;
+      const customNames: Record<string, string> =
+        existingCustomNames &&
+        typeof existingCustomNames === "object" &&
+        !Array.isArray(existingCustomNames) ?
+          {...(existingCustomNames as Record<string, string>)} :
+          {};
+
+      if (rawCustomName.length > 0) {
+        customNames[data.userId] = rawCustomName;
+      } else {
+        delete customNames[data.userId];
+      }
+
+      const updatePayload: Record<string, unknown> = {
+        allowedUsers: admin.firestore.FieldValue.arrayUnion(
+          data.userId,
+          espUid
+        ),
+        espUid,
+        customNames,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+
+      if (!isIntInRange(existing.threshold, 1, 100)) {
+        updatePayload.threshold = initialThr;
+      }
+      if (!isIntInRange(existing.sensitivity, 1, 100)) {
+        updatePayload.sensitivity = initialSens;
+      }
+      if (!isIntInRange(existing.duration, 10, 600)) {
+        updatePayload.duration = initialDur;
+      }
+      if (!isIntInRange(existing.safety_off_min, 0, 1440)) {
+        updatePayload.safety_off_min = initialSafe;
+      }
+      if (typeof existing.remote_lamp_on !== "boolean") {
+        updatePayload.remote_lamp_on = initialLamp;
+      }
+      if (typeof existing.restart_requested !== "boolean") {
+        updatePayload.restart_requested = false;
+      }
+      if (
+        typeof existing.total_on_seconds !== "number" ||
+        !Number.isFinite(existing.total_on_seconds)
+      ) {
+        updatePayload.total_on_seconds = 0;
+      }
+
+      tx.set(deviceRef, updatePayload, {merge: true});
+      tx.delete(pairingRef);
+    });
+  } catch (err) {
+    console.error("verifyPairing failed:", err);
+    res.status(500).json({error: "Internal server error"});
+    return;
+  }
 
   res.status(200).json({ok: true, deviceId, customToken});
 });
