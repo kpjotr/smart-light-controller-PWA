@@ -10,13 +10,18 @@
 <body>
   <div class="app-shell">
     <header class="app-header">
-      <div class="brand">
-        <h1>Okoslámpa</h1>
-        <span class="version-badge" id="app-version">__VERSION__</span>
+      <div class="app-header-top">
+        <div class="brand">
+          <h1>Okoslámpa</h1>
+          <span class="version-badge" id="app-version">__VERSION__</span>
+        </div>
+        <div class="header-actions">
+          <button type="button" class="btn btn-secondary btn-header" id="help-btn">Segítség</button>
+          <button type="button" class="btn btn-secondary btn-header hidden" id="sign-out-btn">Kilépés</button>
+        </div>
       </div>
-      <div class="header-actions">
-        <button type="button" class="btn btn-secondary btn-header" id="help-btn">Segítség</button>
-        <button type="button" class="btn btn-secondary btn-header hidden" id="sign-out-btn">Kilépés</button>
+      <div class="user-status-bar hidden" id="user-status-bar">
+        <span class="user-status-email" id="user-status-email"></span>
       </div>
     </header>
 
@@ -25,7 +30,7 @@
       <section class="view-scroll hidden" id="auth-section" aria-labelledby="auth-heading">
         <div class="card auth-card">
           <h2 id="auth-heading">Bejelentkezés</h2>
-          <p class="muted">Jelentkezz be vagy hozz létre fiókot az okoslámpáid kezeléséhez.</p>
+          <p class="muted">Jelentkezz be a meglévő fiókoddal az okoslámpáid kezeléséhez.</p>
           <form id="auth-form" novalidate>
             <div class="field">
               <label for="auth-email">E-mail cím</label>
@@ -37,7 +42,6 @@
             </div>
             <div class="auth-actions">
               <button type="submit" class="btn btn-primary" id="sign-in-btn">Bejelentkezés</button>
-              <button type="button" class="btn btn-secondary" id="register-btn">Regisztráció</button>
             </div>
             <p class="form-error" id="auth-error" role="alert" aria-live="polite">&nbsp;</p>
           </form>
@@ -181,7 +185,7 @@
     <div class="help-modal-body">
       <section class="help-item">
         <h3>1. Bejelentkezés</h3>
-        <p>Jelentkezz be meglévő e-mail címeddel és jelszavaddal, vagy hozz létre új fiókot a Regisztráció gombbal. A fejlécben lévő <strong>Kilépés</strong> gombbal bármikor biztonságosan kijelentkezhetsz.</p>
+        <p>Jelentkezz be meglévő e-mail címeddel és jelszavaddal. A fejlécben lévő <strong>Kilépés</strong> gombbal bármikor biztonságosan kijelentkezhetsz.</p>
       </section>
       <section class="help-item">
         <h3>2. Eszköz párosítása</h3>

@@ -3,7 +3,6 @@ import {
   getAuth,
   onAuthStateChanged,
   signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
   signOut,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 import {
@@ -39,12 +38,13 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 const els = {
   helpBtn: document.getElementById('help-btn'),
   signOutBtn: document.getElementById('sign-out-btn'),
+  userStatusBar: document.getElementById('user-status-bar'),
+  userStatusEmail: document.getElementById('user-status-email'),
   authSection: document.getElementById('auth-section'),
   authForm: document.getElementById('auth-form'),
   authEmail: document.getElementById('auth-email'),
   authPassword: document.getElementById('auth-password'),
   signInBtn: document.getElementById('sign-in-btn'),
-  registerBtn: document.getElementById('register-btn'),
   authError: document.getElementById('auth-error'),
   pairingView: document.getElementById('pairing-view'),
   pairingForm: document.getElementById('pairing-form'),
@@ -378,6 +378,8 @@ function renderCurrentView() {
   if (!currentUser) {
     // State 1: Login View
     els.signOutBtn.classList.add('hidden');
+    els.userStatusBar.classList.add('hidden');
+    els.userStatusEmail.textContent = '';
     els.authSection.classList.remove('hidden');
     els.pairingView.classList.add('hidden');
     els.deviceListView.classList.add('hidden');
@@ -386,8 +388,10 @@ function renderCurrentView() {
     return;
   }
 
-  // Logged in: Kilépés is ALWAYS visible on Pairing and Device List views
+  // Logged in: Kilépés and signed-in email are ALWAYS visible on Pairing and Device List views
   els.signOutBtn.classList.remove('hidden');
+  els.userStatusBar.classList.remove('hidden');
+  els.userStatusEmail.textContent = `Bejelentkezve: ${currentUser.email || ''}`;
   els.authSection.classList.add('hidden');
 
   const hasDevices = devicesById.size > 0;
@@ -564,30 +568,6 @@ async function handleAuthSubmit(event) {
   await runWithButtonLock(els.signInBtn, 'Bejelentkezés...', async () => {
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      els.authForm.reset();
-    } catch (error) {
-      setFieldError(els.authError, error.message);
-    }
-  });
-}
-
-async function handleRegisterClick() {
-  setFieldError(els.authError, '');
-
-  const email = els.authEmail.value.trim();
-  const password = els.authPassword.value;
-
-  if (!email || !password || password.length < 6) {
-    setFieldError(
-      els.authError,
-      'Adj meg érvényes e-mail címet és legalább 6 karakteres jelszót.'
-    );
-    return;
-  }
-
-  await runWithButtonLock(els.registerBtn, 'Regisztráció...', async () => {
-    try {
-      await createUserWithEmailAndPassword(auth, email, password);
       els.authForm.reset();
     } catch (error) {
       setFieldError(els.authError, error.message);
@@ -887,7 +867,6 @@ function init() {
   });
 
   els.authForm.addEventListener('submit', handleAuthSubmit);
-  els.registerBtn.addEventListener('click', handleRegisterClick);
   els.signOutBtn.addEventListener('click', () => auth && signOut(auth));
 
   els.pairingForm.addEventListener('submit', handlePairingSubmit);
