@@ -20,6 +20,12 @@ import {
   serverTimestamp,
   Timestamp,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
+import {
+  getDatabase,
+  ref,
+  onValue,
+  update,
+} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-database.js';
 
 const PARAM_SPECS = [
   { key: 'threshold', label: 'Fény érzékenység', min: 1, max: 100, fallback: 50 },
@@ -35,6 +41,9 @@ const PAIRING_TIMEOUT_MS = 60000;
 const PAIRING_GRACE_MS = 1500;
 const PAIRING_SUCCESS_DISPLAY_MS = 6500;
 const ONLINE_THRESHOLD_MS = 90000;
+const RTDB_URL = 'https://okospilacsvezerlo-default-rtdb.europe-west1.firebasedatabase.app';
+const RTDB_ONLINE_THRESHOLD_MS = 35000;
+const ONLINE_TICK_MS = 5000;
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 const els = {
@@ -83,11 +92,17 @@ const els = {
 
 let auth = null;
 let db = null;
+let rtdb = null;
 let currentUser = null;
 let devicesUnsubscribe = null;
 let devicesById = new Map();
+const liveStateById = new Map();
+const liveCmdById = new Map();
+const rtdbUnsubscribesById = new Map();
+const renderedOnlineById = new Map();
 const dirtyParams = new Set();
 const togglingDeviceIds = new Set();
+let onlineTickerId = null;
 
 const uiState = {
   showPairingView: false,
@@ -262,8 +277,13 @@ async function runWithButtonLock(buttonEl, loadingText, asyncFn) {
 }
 
 function isDeviceOnline(device) {
-  if (device?.online === true) return true;
-  const lastSeen = device?.lastSeenAt;
+  if (!device) return false;
+  const liveState = liveStateById.get(device.id);
+  if (liveState && typeof liveState.ts === 'number' && Number.isFinite(liveState.ts)) {
+    return (Date.now() - liveState.ts) <= RTDB_ONLINE_THRESHOLD_MS;
+  }
+  if (device.online === true) return true;
+  const lastSeen = device.lastSeenAt;
   if (!lastSeen) return false;
   let ms = NaN;
   if (typeof lastSeen.toMillis === 'function') {
@@ -274,6 +294,139 @@ function isDeviceOnline(device) {
     ms = Date.parse(lastSeen);
   }
   return Number.isFinite(ms) && (Date.now() - ms) <= ONLINE_THRESHOLD_MS;
+}
+
+function getManualLampOn(device) {
+  if (!device) return false;
+  const liveCmd = liveCmdById.get(device.id);
+  if (liveCmd && typeof liveCmd.lamp === 'boolean') {
+    return liveCmd.lamp;
+  }
+  return Boolean(device.remote_lamp_on);
+}
+
+function clampIntParam(val, min, max, fallback) {
+  return typeof val === 'number' && Number.isFinite(val)
+    ? Math.min(max, Math.max(min, Math.round(val)))
+    : fallback;
+}
+
+function buildFullCmdPayload(device, overrides = {}) {
+  return {
+    lamp: Boolean(device?.remote_lamp_on),
+    restart: Boolean(device?.restart_requested),
+    thr: clampIntParam(device?.threshold, 1, 100, 50),
+    sens: clampIntParam(device?.sensitivity, 1, 100, 50),
+    dur: clampIntParam(device?.duration, 10, 600, 60),
+    safe: clampIntParam(device?.safety_off_min, 0, 1440, 0),
+    ...overrides,
+  };
+}
+
+function renderLiveDeviceUpdates(deviceId) {
+  if (!currentUser) return;
+  if (!uiState.showPairingView && devicesById.size > 0) {
+    renderDeviceList();
+  }
+  if (uiState.settingsDeviceId === deviceId && devicesById.has(deviceId)) {
+    populateSettingsModal(deviceId, false);
+  }
+}
+
+function clearRtdbListeners() {
+  for (const unsubs of rtdbUnsubscribesById.values()) {
+    unsubs.unsubState();
+    unsubs.unsubCmd();
+  }
+  rtdbUnsubscribesById.clear();
+  liveStateById.clear();
+  liveCmdById.clear();
+  renderedOnlineById.clear();
+}
+
+function syncRtdbListeners(deviceIds) {
+  if (!rtdb) return;
+  const activeSet = new Set(deviceIds);
+
+  for (const [deviceId, unsubs] of rtdbUnsubscribesById.entries()) {
+    if (!activeSet.has(deviceId)) {
+      unsubs.unsubState();
+      unsubs.unsubCmd();
+      rtdbUnsubscribesById.delete(deviceId);
+      liveStateById.delete(deviceId);
+      liveCmdById.delete(deviceId);
+      renderedOnlineById.delete(deviceId);
+    }
+  }
+
+  for (const deviceId of activeSet) {
+    if (rtdbUnsubscribesById.has(deviceId)) continue;
+
+    const stateRef = ref(rtdb, `live/${deviceId}/state`);
+    const cmdRef = ref(rtdb, `live/${deviceId}/cmd`);
+
+    const unsubState = onValue(
+      stateRef,
+      (snap) => {
+        if (snap.exists()) {
+          liveStateById.set(deviceId, snap.val());
+        } else {
+          liveStateById.delete(deviceId);
+        }
+        renderLiveDeviceUpdates(deviceId);
+      },
+      (error) => {
+        if (!devicesById.has(deviceId)) return;
+        console.warn(`RTDB state listener error (${deviceId}):`, error.message);
+      }
+    );
+
+    const unsubCmd = onValue(
+      cmdRef,
+      (snap) => {
+        if (snap.exists()) {
+          liveCmdById.set(deviceId, snap.val());
+        } else {
+          liveCmdById.delete(deviceId);
+        }
+        renderLiveDeviceUpdates(deviceId);
+      },
+      (error) => {
+        if (!devicesById.has(deviceId)) return;
+        console.warn(`RTDB cmd listener error (${deviceId}):`, error.message);
+      }
+    );
+
+    rtdbUnsubscribesById.set(deviceId, { unsubState, unsubCmd });
+  }
+}
+
+function startOnlineTicker() {
+  if (onlineTickerId !== null) return;
+  onlineTickerId = setInterval(() => {
+    if (!currentUser || devicesById.size === 0) return;
+    let changed = false;
+    for (const [deviceId, device] of devicesById.entries()) {
+      if (renderedOnlineById.get(deviceId) !== isDeviceOnline(device)) {
+        changed = true;
+        break;
+      }
+    }
+    if (!changed) return;
+    if (!uiState.showPairingView) {
+      renderDeviceList();
+    }
+    if (uiState.settingsDeviceId && devicesById.has(uiState.settingsDeviceId)) {
+      populateSettingsModal(uiState.settingsDeviceId, false);
+    }
+  }, ONLINE_TICK_MS);
+}
+
+function stopOnlineTicker() {
+  if (onlineTickerId !== null) {
+    clearInterval(onlineTickerId);
+    onlineTickerId = null;
+  }
 }
 
 function createSvgElement(tag, attrs = {}) {
@@ -340,16 +493,16 @@ function getDeviceDisplayName(deviceOrId) {
 function renderDeviceList() {
   const sortedIds = Array.from(devicesById.keys()).sort();
   const rows = [];
+  renderedOnlineById.clear();
 
   for (const deviceId of sortedIds) {
     const device = devicesById.get(deviceId) || { id: deviceId };
     const displayName = getDeviceDisplayName(device);
     const isOnline = isDeviceOnline(device);
-    const isManualOn = Boolean(device.remote_lamp_on);
-    const isSensorHoldingLamp = Boolean(
-      device.auto_lamp_on || device.sensor_lamp_on || (device.lamp_is_on && !isManualOn)
-    );
-    const isAutoActive = isOnline && !isManualOn && isSensorHoldingLamp;
+    renderedOnlineById.set(deviceId, isOnline);
+    const liveState = liveStateById.get(deviceId);
+    const isManualOn = getManualLampOn(device);
+    const isAutoActive = isOnline && !isManualOn && liveState?.auto === true;
 
     const row = document.createElement('div');
     row.className = 'device-row';
@@ -469,7 +622,10 @@ function populateSettingsModal(deviceId, forcePopulate = false) {
   els.settingsModalStatusDot.className = `status-dot ${online ? 'is-online' : 'is-offline'}`;
   els.settingsModalStatusText.textContent = online ? 'Online' : 'Offline';
 
-  const isRestarting = data.restart_requested === true;
+  const liveCmd = liveCmdById.get(deviceId);
+  const isRestarting = liveCmd && typeof liveCmd.restart === 'boolean'
+    ? liveCmd.restart
+    : data.restart_requested === true;
   els.restartBtn.disabled = isRestarting;
   els.restartBtn.textContent = isRestarting ? 'Újraindítás...' : 'Újraindítás';
 
@@ -562,10 +718,14 @@ function subscribeToDevices() {
     devicesUnsubscribe();
     devicesUnsubscribe = null;
   }
+  clearRtdbListeners();
+  stopOnlineTicker();
 
   if (!auth?.currentUser) {
     return;
   }
+
+  startOnlineTicker();
 
   const devicesQuery = query(
     collection(db, 'devices'),
@@ -580,6 +740,8 @@ function subscribeToDevices() {
       querySnapshot.forEach((docSnap) => {
         devicesById.set(docSnap.id, { ...docSnap.data(), id: docSnap.id });
       });
+
+      syncRtdbListeners(Array.from(devicesById.keys()));
 
       if (pendingPairing.deviceId && devicesById.has(pendingPairing.deviceId)) {
         completePairingSuccess(pendingPairing.deviceId);
@@ -738,17 +900,23 @@ async function handleRowLampToggle(deviceId, buttonEl) {
   const device = devicesById.get(deviceId);
   if (!device || !isDeviceOnline(device)) return;
 
-  const previousState = Boolean(device.remote_lamp_on);
+  const previousState = getManualLampOn(device);
   const nextState = !previousState;
   togglingDeviceIds.add(deviceId);
   buttonEl.disabled = true;
   buttonEl.setAttribute('aria-busy', 'true');
 
   try {
-    await updateDoc(doc(db, 'devices', deviceId), {
-      remote_lamp_on: nextState,
-      updatedAt: serverTimestamp(),
-    });
+    const cmdPayload = liveCmdById.has(deviceId)
+      ? { lamp: nextState }
+      : buildFullCmdPayload(device, { lamp: nextState });
+    await Promise.all([
+      update(ref(rtdb, `live/${deviceId}/cmd`), cmdPayload),
+      updateDoc(doc(db, 'devices', deviceId), {
+        remote_lamp_on: nextState,
+        updatedAt: serverTimestamp(),
+      }),
+    ]);
     const displayName = getDeviceDisplayName(device);
     showBanner(
       nextState
@@ -792,7 +960,20 @@ async function handleSettingsSubmit(event) {
 
   await runWithButtonLock(els.saveSettingsBtn, 'Mentés...', async () => {
     try {
-      await updateDoc(doc(db, 'devices', deviceId), payload);
+      const device = devicesById.get(deviceId);
+      const rtdbCmdPatch = {
+        thr: payload.threshold,
+        sens: payload.sensitivity,
+        dur: payload.duration,
+        safe: payload.safety_off_min,
+      };
+      const cmdPayload = liveCmdById.has(deviceId)
+        ? rtdbCmdPatch
+        : buildFullCmdPayload(device, rtdbCmdPatch);
+      await Promise.all([
+        update(ref(rtdb, `live/${deviceId}/cmd`), cmdPayload),
+        updateDoc(doc(db, 'devices', deviceId), payload),
+      ]);
       dirtyParams.clear();
       const displayName = getDeviceDisplayName(deviceId);
       setSettingsStatus('success', `${displayName}: Beállítások elmentve.`, 4000);
@@ -811,10 +992,17 @@ async function handleRestartConfirm() {
 
   await runWithButtonLock(els.restartConfirmBtn, 'Küldés...', async () => {
     try {
-      await updateDoc(doc(db, 'devices', deviceId), {
-        restart_requested: true,
-        updatedAt: serverTimestamp(),
-      });
+      const device = devicesById.get(deviceId);
+      const cmdPayload = liveCmdById.has(deviceId)
+        ? { restart: true }
+        : buildFullCmdPayload(device, { restart: true });
+      await Promise.all([
+        update(ref(rtdb, `live/${deviceId}/cmd`), cmdPayload),
+        updateDoc(doc(db, 'devices', deviceId), {
+          restart_requested: true,
+          updatedAt: serverTimestamp(),
+        }),
+      ]);
       els.restartBtn.disabled = true;
       els.restartBtn.textContent = 'Újraindítás...';
       closeRestartModal();
@@ -967,6 +1155,7 @@ function init() {
     const app = initializeApp(firebaseConfig);
     auth = getAuth(app);
     db = initializeFirestore(app, { experimentalForceLongPolling: true });
+    rtdb = getDatabase(app, RTDB_URL);
 
     onAuthStateChanged(auth, (user) => {
       currentUser = user;
@@ -981,6 +1170,8 @@ function init() {
           devicesUnsubscribe();
           devicesUnsubscribe = null;
         }
+        clearRtdbListeners();
+        stopOnlineTicker();
         devicesById.clear();
         togglingDeviceIds.clear();
         uiState.showPairingView = false;

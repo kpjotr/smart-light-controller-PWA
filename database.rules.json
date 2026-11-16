@@ -1,0 +1,75 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "acl": {
+      ".read": false,
+      ".write": false
+    },
+    "live": {
+      "$deviceId": {
+        "cmd": {
+          ".read": "auth != null && root.child('acl').child($deviceId).child(auth.uid).val() === true",
+          ".write": "auth != null && auth.token.role != 'device' && root.child('acl').child($deviceId).child(auth.uid).val() === true && newData.exists()",
+          ".validate": "newData.hasChildren(['lamp', 'restart', 'thr', 'sens', 'dur', 'safe'])",
+          "lamp": {
+            ".validate": "newData.isBoolean()"
+          },
+          "restart": {
+            ".validate": "newData.isBoolean()"
+          },
+          "thr": {
+            ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 100"
+          },
+          "sens": {
+            ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 100"
+          },
+          "dur": {
+            ".validate": "newData.isNumber() && newData.val() >= 10 && newData.val() <= 600"
+          },
+          "safe": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 1440"
+          },
+          "p1_reset": {
+            ".validate": "newData.isBoolean()"
+          },
+          "$other": {
+            ".validate": false
+          }
+        },
+        "state": {
+          ".read": "auth != null && root.child('acl').child($deviceId).child(auth.uid).val() === true",
+          ".write": "auth != null && auth.token.role === 'device' && auth.token.deviceId === $deviceId && root.child('acl').child($deviceId).child(auth.uid).val() === true && newData.exists()",
+          ".validate": "newData.hasChildren(['on', 'auto', 'lux', 'mot', 'ts', 'energy_delta_sec'])",
+          "on": {
+            ".validate": "newData.isBoolean()"
+          },
+          "auto": {
+            ".validate": "newData.isBoolean()"
+          },
+          "lux": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 65535"
+          },
+          "mot": {
+            ".validate": "newData.isBoolean()"
+          },
+          "ts": {
+            ".validate": "newData.isNumber()"
+          },
+          "energy_delta_sec": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 86400"
+          },
+          "p1_off": {
+            ".validate": "newData.isBoolean()"
+          },
+          "$other": {
+            ".validate": false
+          }
+        },
+        "$other": {
+          ".validate": false
+        }
+      }
+    }
+  }
+}
