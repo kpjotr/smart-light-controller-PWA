@@ -16,6 +16,7 @@ import {
   setDoc,
   updateDoc,
   arrayRemove,
+  deleteField,
   serverTimestamp,
   Timestamp,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
@@ -28,6 +29,7 @@ const PARAM_SPECS = [
 ];
 
 const PASSKEY_REGEX = /^[A-Z0-9]{10}$/;
+const CUSTOM_NAME_REGEX = /^[A-Za-z0-9 _-]{0,32}$/;
 const LOADING_DELAY_MS = 250;
 const PAIRING_TIMEOUT_MS = 60000;
 const PAIRING_GRACE_MS = 1500;
@@ -49,6 +51,7 @@ const els = {
   pairingView: document.getElementById('pairing-view'),
   pairingForm: document.getElementById('pairing-form'),
   pairDeviceId: document.getElementById('pair-device-id'),
+  pairCustomName: document.getElementById('pair-custom-name'),
   pairPin: document.getElementById('pair-pin'),
   pairSubmitBtn: document.getElementById('pair-submit-btn'),
   backToDevicesBtn: document.getElementById('back-to-devices-btn'),
@@ -320,13 +323,27 @@ function createGearIconSvg() {
   return svg;
 }
 
+function getDeviceDisplayName(deviceOrId) {
+  const device = typeof deviceOrId === 'string'
+    ? (devicesById.get(deviceOrId) || { id: deviceOrId })
+    : deviceOrId;
+  if (!device) return '';
+  const custom =
+    currentUser &&
+    device.customNames &&
+    typeof device.customNames[currentUser.uid] === 'string'
+      ? device.customNames[currentUser.uid].trim()
+      : '';
+  return custom.length > 0 ? custom : (device.id || '');
+}
+
 function renderDeviceList() {
   const sortedIds = Array.from(devicesById.keys()).sort();
   const rows = [];
 
   for (const deviceId of sortedIds) {
-    const device = devicesById.get(deviceId) || {};
-    const displayName = device.name || deviceId;
+    const device = devicesById.get(deviceId) || { id: deviceId };
+    const displayName = getDeviceDisplayName(device);
     const isOnline = isDeviceOnline(device);
     const isManualOn = Boolean(device.remote_lamp_on);
     const isSensorHoldingLamp = Boolean(
@@ -446,7 +463,7 @@ function populateSettingsModal(deviceId, forcePopulate = false) {
     return;
   }
 
-  els.settingsModalDeviceName.textContent = data.name || deviceId;
+  els.settingsModalDeviceName.textContent = getDeviceDisplayName(deviceId);
 
   const online = isDeviceOnline(data);
   els.settingsModalStatusDot.className = `status-dot ${online ? 'is-online' : 'is-offline'}`;
@@ -509,7 +526,7 @@ function closeSettingsModal() {
 function openRestartModal() {
   const deviceId = uiState.settingsDeviceId;
   if (!deviceId || els.restartBtn.disabled) return;
-  const displayName = devicesById.get(deviceId)?.name || deviceId;
+  const displayName = getDeviceDisplayName(deviceId);
   els.restartModalDesc.textContent =
     `Biztosan újra szeretnéd indítani a(z) "${displayName}" ESP32 vezérlőt? Az újraindítás alatt az eszköz átmenetileg nem lesz elérhető.`;
   openDialogElement(els.restartModal);
@@ -534,7 +551,8 @@ function completePairingSuccess(deviceId) {
   els.pairingForm.reset();
   uiState.showPairingView = false;
   renderCurrentView();
-  const successMsg = `Sikeres párosítás! A(z) ${deviceId} eszköz csatlakoztatva.`;
+  const displayName = getDeviceDisplayName(deviceId);
+  const successMsg = `Sikeres párosítás! A(z) ${displayName} eszköz csatlakoztatva.`;
   setPairingFeedback('hidden', '');
   showBanner(successMsg, 'success', PAIRING_SUCCESS_DISPLAY_MS);
 }
@@ -560,7 +578,7 @@ function subscribeToDevices() {
     (querySnapshot) => {
       devicesById = new Map();
       querySnapshot.forEach((docSnap) => {
-        devicesById.set(docSnap.id, docSnap.data());
+        devicesById.set(docSnap.id, { ...docSnap.data(), id: docSnap.id });
       });
 
       if (pendingPairing.deviceId && devicesById.has(pendingPairing.deviceId)) {
@@ -613,11 +631,20 @@ async function handlePairingSubmit(event) {
   if (!currentUser || !auth?.currentUser) return;
 
   const deviceId = els.pairDeviceId.value.trim();
+  const customName = els.pairCustomName.value.trim();
   const pin = els.pairPin.value.trim().toUpperCase();
+  els.pairCustomName.value = customName;
   els.pairPin.value = pin;
 
   if (!deviceId || deviceId.includes('/')) {
     setPairingFeedback('error', 'Adj meg egy érvényes eszköz azonosítót "/" karakter nélkül.');
+    return;
+  }
+  if (!CUSTOM_NAME_REGEX.test(customName)) {
+    setPairingFeedback(
+      'error',
+      'Az egyedi név csak ékezet nélküli betűket (a-Z), számokat (0-9), szóközt, _ és - karaktert tartalmazhat!'
+    );
     return;
   }
   if (!PASSKEY_REGEX.test(pin)) {
@@ -641,6 +668,7 @@ async function handlePairingSubmit(event) {
       userId: auth.currentUser.uid,
       attempts: 0,
       expiresAt: Timestamp.fromDate(new Date(Date.now() + 5 * 60 * 1000)),
+      customName,
     });
     clearTimeout(sendTimer);
 
@@ -721,10 +749,11 @@ async function handleRowLampToggle(deviceId, buttonEl) {
       remote_lamp_on: nextState,
       updatedAt: serverTimestamp(),
     });
+    const displayName = getDeviceDisplayName(device);
     showBanner(
       nextState
-        ? `${deviceId}: Manuális világítás BE.`
-        : `${deviceId}: Manuális világítás KI (automatikus mód aktív).`,
+        ? `${displayName}: Manuális világítás BE.`
+        : `${displayName}: Manuális világítás KI (automatikus mód aktív).`,
       'success'
     );
   } catch (error) {
@@ -765,7 +794,8 @@ async function handleSettingsSubmit(event) {
     try {
       await updateDoc(doc(db, 'devices', deviceId), payload);
       dirtyParams.clear();
-      setSettingsStatus('success', 'Beállítások elmentve.', 4000);
+      const displayName = getDeviceDisplayName(deviceId);
+      setSettingsStatus('success', `${displayName}: Beállítások elmentve.`, 4000);
     } catch (error) {
       setSettingsStatus('error', error.message);
     }
@@ -788,8 +818,9 @@ async function handleRestartConfirm() {
       els.restartBtn.disabled = true;
       els.restartBtn.textContent = 'Újraindítás...';
       closeRestartModal();
+      const displayName = getDeviceDisplayName(deviceId);
       setSettingsStatus('success', 'Újraindítási kérelem elküldve.', 5000);
-      showBanner(`Újraindítási kérelem elküldve: ${deviceId}.`, 'success');
+      showBanner(`Újraindítási kérelem elküldve: ${displayName}.`, 'success');
     } catch (error) {
       setSettingsStatus('error', `Az újraindítás sikertelen: ${error.message}`);
       showBanner(`Az újraindítás sikertelen: ${error.message}`, 'error');
@@ -804,14 +835,23 @@ async function handleRestartConfirm() {
 async function handleUnpair() {
   const deviceId = uiState.settingsDeviceId;
   if (!deviceId || !currentUser) return;
-  const displayName = devicesById.get(deviceId)?.name || deviceId;
+  const device = devicesById.get(deviceId);
+  const displayName = getDeviceDisplayName(device || deviceId);
   if (!window.confirm(`Biztosan leválasztod a(z) "${displayName}" eszközt a fiókodról?`)) return;
+
+  const updatePayload = {
+    allowedUsers: arrayRemove(currentUser.uid),
+  };
+  if (
+    device?.customNames &&
+    Object.prototype.hasOwnProperty.call(device.customNames, currentUser.uid)
+  ) {
+    updatePayload[`customNames.${currentUser.uid}`] = deleteField();
+  }
 
   await runWithButtonLock(els.unpairBtn, 'Leválasztás...', async () => {
     try {
-      await updateDoc(doc(db, 'devices', deviceId), {
-        allowedUsers: arrayRemove(currentUser.uid),
-      });
+      await updateDoc(doc(db, 'devices', deviceId), updatePayload);
       closeSettingsModal();
       showBanner(`A(z) "${displayName}" eszköz leválasztva.`, 'success');
     } catch (error) {

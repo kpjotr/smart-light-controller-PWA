@@ -66,6 +66,19 @@
               >
             </div>
             <div class="field">
+              <label for="pair-custom-name">Egyedi eszköznév (opcionális)</label>
+              <input
+                type="text"
+                id="pair-custom-name"
+                maxlength="32"
+                autocomplete="off"
+                spellcheck="false"
+                pattern="^[A-Za-z0-9 _\-]{0,32}$"
+                placeholder="Pl. Nappali_lampa-1"
+              >
+              <span class="range-hint">Csak ékezet nélküli betűk (a-Z), számok (0-9), szóköz, _ és - (max. 32 karakter).</span>
+            </div>
+            <div class="field">
               <label for="pair-pin">10 karakteres gyári biztonsági kód (Passkey)</label>
               <input
                 type="text"
@@ -189,7 +202,7 @@
       </section>
       <section class="help-item">
         <h3>2. Eszköz párosítása</h3>
-        <p>Miután a vezérlő Captive Portalján beállítottad a Wi-Fi hálózatot, 5 perces párosítási ablak nyílik meg. Add meg az eszköz nevét (<code>SmartLight-XXXX</code>) és az eszközön szereplő 10 karakteres gyári kódot (<code>Passkey</code>).</p>
+        <p>Miután a vezérlő Captive Portalján beállítottad a Wi-Fi hálózatot, 5 perces párosítási ablak nyílik meg. Add meg az eszköz nevét (<code>SmartLight-XXXX</code>), opcionálisan saját egyedi nevet (<code>a-Z</code>, <code>0-9</code>, szóköz, <code>_</code>, <code>-</code>), valamint a 10 karakteres gyári kódot (<code>Passkey</code>).</p>
       </section>
       <section class="help-item">
         <h3>3. Eszközlista és Lámpa kapcsolás</h3>

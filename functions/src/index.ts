@@ -8,6 +8,7 @@ const db = admin.firestore();
 // (később kiszervezhető Secret Managerbe)
 const ESP_AUTH_TOKEN = "ESP32_SECRET_TOKEN_998877";
 const PASSKEY_REGEX = /^[A-Z0-9]{6,12}$/;
+const CUSTOM_NAME_REGEX = /^[A-Za-z0-9 _-]{0,32}$/;
 
 /**
  * Checks whether a value is an integer within an inclusive range.
@@ -91,15 +92,38 @@ export const verifyPairing = onRequest(async (req, res) => {
     return;
   }
 
+  const rawCustomName = typeof data.customName === "string" ?
+    data.customName.trim() :
+    "";
+  if (!CUSTOM_NAME_REGEX.test(rawCustomName)) {
+    res.status(400).send("Invalid custom name");
+    return;
+  }
+
   // SIKERES PÁROSÍTÁS: Létrehozzuk/frissítjük a devices/{deviceId} dokumentumot
   const deviceRef = db.collection("devices").doc(deviceId);
   await db.runTransaction(async (tx) => {
     const deviceSnap = await tx.get(deviceRef);
     const existing = deviceSnap.exists ? (deviceSnap.data() ?? {}) : {};
 
+    const existingCustomNames = existing.customNames;
+    const customNames: Record<string, string> =
+      existingCustomNames &&
+      typeof existingCustomNames === "object" &&
+      !Array.isArray(existingCustomNames) ?
+        {...(existingCustomNames as Record<string, string>)} :
+        {};
+
+    if (rawCustomName.length > 0) {
+      customNames[data.userId] = rawCustomName;
+    } else {
+      delete customNames[data.userId];
+    }
+
     const updatePayload: Record<string, unknown> = {
       allowedUsers: admin.firestore.FieldValue.arrayUnion(data.userId, espUid),
       espUid,
+      customNames,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
 

@@ -10,6 +10,26 @@ service cloud.firestore {
       return val is int && val >= minVal && val <= maxVal;
     }
 
+    function isValidCustomName(val) {
+      return val is string
+        && val.size() <= 32
+        && val.matches('^[A-Za-z0-9 _-]{0,32}$');
+    }
+
+    function isValidCustomNamesUpdate() {
+      let data = request.resource.data;
+      let prev = resource.data;
+
+      return (!('customNames' in data) && !('customNames' in prev))
+        || (('customNames' in data) && ('customNames' in prev) && data.customNames == prev.customNames)
+        || (
+          ('customNames' in data)
+          && data.customNames is map
+          && data.customNames.diff(prev.get('customNames', {})).affectedKeys().hasOnly([request.auth.uid])
+          && (!(request.auth.uid in data.customNames) || isValidCustomName(data.customNames[request.auth.uid]))
+        );
+    }
+
     function isValidDeviceSettingsUpdate() {
       let data = request.resource.data;
       let prev = resource.data;
@@ -21,7 +41,8 @@ service cloud.firestore {
         'safety_off_min',
         'remote_lamp_on',
         'restart_requested',
-        'updatedAt'
+        'updatedAt',
+        'customNames'
       ];
 
       return prev.allowedUsers is list
@@ -34,7 +55,8 @@ service cloud.firestore {
         && (!('safety_off_min' in data) || isBoundedInt(data.safety_off_min, 0, 1440))
         && (!('remote_lamp_on' in data) || data.remote_lamp_on is bool)
         && (!('restart_requested' in data) || data.restart_requested is bool)
-        && (!('updatedAt' in changedKeys) || data.updatedAt is timestamp);
+        && (!('updatedAt' in changedKeys) || data.updatedAt is timestamp)
+        && isValidCustomNamesUpdate();
     }
 
     function isValidSelfUnpair() {
@@ -42,12 +64,13 @@ service cloud.firestore {
       let prev = resource.data;
 
       return prev.allowedUsers is list
-        && data.diff(prev).affectedKeys().hasOnly(['allowedUsers'])
+        && data.diff(prev).affectedKeys().hasOnly(['allowedUsers', 'customNames'])
         && (!('espUid' in prev) || ('espUid' in data && data.espUid == prev.espUid))
         && data.allowedUsers is list
         && !(request.auth.uid in data.allowedUsers)
         && data.allowedUsers.size() == prev.allowedUsers.size() - 1
-        && prev.allowedUsers.hasAll(data.allowedUsers);
+        && prev.allowedUsers.hasAll(data.allowedUsers)
+        && isValidCustomNamesUpdate();
     }
 
     match /pairing_requests/{deviceId} {
@@ -55,13 +78,15 @@ service cloud.firestore {
         && (resource == null || resource.data.userId == request.auth.uid);
       allow list, delete: if false;
       allow create, update: if isAuthenticated()
+        && request.resource.data.keys().hasOnly(['userId', 'pin', 'attempts', 'expiresAt', 'customName'])
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.pin is string
         && request.resource.data.pin.size() >= 6
         && request.resource.data.pin.size() <= 12
         && request.resource.data.pin.matches('^[A-Za-z0-9]{6,12}$')
         && request.resource.data.attempts == 0
-        && request.resource.data.expiresAt is timestamp;
+        && request.resource.data.expiresAt is timestamp
+        && (!('customName' in request.resource.data) || isValidCustomName(request.resource.data.customName));
     }
 
     match /devices/{deviceId} {

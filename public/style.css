@@ -849,15 +849,52 @@ dialog.settings-modal .modal-header {
 
 @media (max-height: 700px) {
   .field {
-    gap: 4px;
-    margin-bottom: 10px;
+    gap: 3px;
+    margin-bottom: 7px;
+  }
+
+  .pairing-card {
+    padding: clamp(8px, 1.4vh, 12px) 14px;
+  }
+
+  .pairing-card h2 {
+    margin-bottom: 4px;
+    font-size: 1.05rem;
+  }
+
+  .pairing-card > .muted {
+    margin-bottom: 6px;
+    font-size: 0.8rem;
+    line-height: 1.25;
+  }
+
+  .pairing-card label {
+    font-size: 0.82rem;
+  }
+
+  .pairing-card .range-hint {
+    font-size: 0.72rem;
+    line-height: 1.18;
+  }
+
+  .pairing-actions {
+    flex-direction: row;
+    gap: 8px;
+  }
+
+  .pairing-actions .btn {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.84rem;
+    line-height: 1.15;
+    padding: 6px 8px;
   }
 
   .pairing-feedback {
-    min-height: 46px;
-    margin-top: 8px;
-    padding: 8px 10px;
-    font-size: 0.85rem;
+    min-height: 40px;
+    margin-top: 6px;
+    padding: 6px 10px;
+    font-size: 0.82rem;
   }
 
   dialog.settings-modal {
