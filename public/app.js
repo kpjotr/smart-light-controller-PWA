@@ -40,7 +40,8 @@ const CUSTOM_NAME_REGEX = /^[A-Za-z0-9 _-]{0,32}$/;
 const LOADING_DELAY_MS = 250;
 const PAIRING_TIMEOUT_MS = 60000;
 const PAIRING_GRACE_MS = 1500;
-const PAIRING_SUCCESS_DISPLAY_MS = 6500;
+const TOAST_DISPLAY_MS = 2500;
+const PAIRING_SUCCESS_DISPLAY_MS = TOAST_DISPLAY_MS;
 const ONLINE_THRESHOLD_MS = 90000;
 const RTDB_URL = 'https://okospilacsvezerlo-default-rtdb.europe-west1.firebasedatabase.app';
 const RTDB_ONLINE_THRESHOLD_MS = 35000;
@@ -70,6 +71,7 @@ const els = {
   pairingFeedbackText: document.getElementById('pairing-feedback-text'),
   deviceListView: document.getElementById('device-list-view'),
   statusBanner: document.getElementById('status-banner'),
+  statusBannerText: document.getElementById('status-banner-text'),
   deviceList: document.getElementById('device-list'),
   openPairingBtn: document.getElementById('open-pairing-btn'),
   settingsModal: document.getElementById('settings-modal'),
@@ -137,27 +139,64 @@ function syncAppHeight(force = false) {
   document.documentElement.style.setProperty('--app-h', `${Math.round(vh)}px`);
 }
 
-function showBanner(message, type = 'info', durationMs = 5000) {
+function isDeviceLampOn(device) {
+  if (!device || !isDeviceOnline(device)) return false;
+  const liveState = liveStateById.get(device.id);
+  const isManualOn = getManualLampOn(device);
+  const isAutoActive = !isManualOn && liveState?.auto === true;
+  return liveState?.on === true || isManualOn || isAutoActive;
+}
+
+function getFleetSummaryText() {
+  const totalCount = devicesById.size;
+  if (totalCount === 0) {
+    return 'Nincs még párosított eszköz';
+  }
+  let onCount = 0;
+  let hasWattage = false;
+  let totalKwh = 0;
+  for (const device of devicesById.values()) {
+    if (isDeviceLampOn(device)) {
+      onCount += 1;
+    }
+    const wattage = getDeviceWattage(device);
+    if (wattage > 0) {
+      hasWattage = true;
+      totalKwh += (getDeviceTotalOnSeconds(device) / 3600) * (wattage / 1000);
+    }
+  }
+  if (hasWattage) {
+    return `Összesen: ${totalCount} eszköz • Ég: ${onCount} • ${totalKwh.toFixed(2)} kWh`;
+  }
+  return `Összesen: ${totalCount} eszköz • Ég: ${onCount}`;
+}
+
+function renderIdleStatusBanner() {
+  els.statusBanner.classList.remove('is-hidden', 'is-error', 'is-success', 'is-info');
+  els.statusBannerText.textContent = getFleetSummaryText();
+}
+
+function showBanner(message, type = 'info', durationMs = TOAST_DISPLAY_MS) {
   if (statusTimer) {
     clearTimeout(statusTimer);
     statusTimer = null;
   }
-  els.statusBanner.classList.remove('is-hidden', 'is-error', 'is-success');
   if (!message) {
-    els.statusBanner.textContent = '\u00A0';
-    els.statusBanner.classList.add('is-hidden');
+    renderIdleStatusBanner();
     return;
   }
-  els.statusBanner.textContent = message;
+  els.statusBanner.classList.remove('is-hidden', 'is-error', 'is-success', 'is-info');
+  els.statusBannerText.textContent = message;
   if (type === 'error') {
     els.statusBanner.classList.add('is-error');
   } else if (type === 'success') {
     els.statusBanner.classList.add('is-success');
+  } else {
+    els.statusBanner.classList.add('is-info');
   }
   statusTimer = setTimeout(() => {
     statusTimer = null;
-    els.statusBanner.classList.add('is-hidden');
-    els.statusBanner.textContent = '\u00A0';
+    renderIdleStatusBanner();
   }, durationMs);
 }
 
@@ -619,6 +658,9 @@ function renderDeviceList() {
   }
 
   els.deviceList.replaceChildren(...rows);
+  if (!statusTimer) {
+    renderIdleStatusBanner();
+  }
 }
 
 function renderCurrentView() {
@@ -999,13 +1041,9 @@ async function handleRowLampToggle(deviceId, buttonEl) {
         updatedAt: serverTimestamp(),
       }),
     ]);
-    const displayName = getDeviceDisplayName(device);
-    showBanner(
-      nextState
-        ? `${displayName}: Manuális világítás BE.`
-        : `${displayName}: Manuális világítás KI (automatikus mód aktív).`,
-      'success'
-    );
+    if (!statusTimer) {
+      renderIdleStatusBanner();
+    }
   } catch (error) {
     showBanner(`Nem sikerült átkapcsolni a lámpát: ${error.message}`, 'error');
   } finally {
@@ -1060,6 +1098,7 @@ async function handleSettingsSubmit(event) {
       dirtyParams.clear();
       const displayName = getDeviceDisplayName(deviceId);
       setSettingsStatus('success', `${displayName}: Beállítások elmentve.`, 4000);
+      showBanner(`${displayName}: Beállítások elmentve.`, 'success');
     } catch (error) {
       setSettingsStatus('error', error.message);
     }
@@ -1102,6 +1141,7 @@ async function executeResetConsumption(deviceId) {
       updatedAt: serverTimestamp(),
     });
     setSettingsStatus('success', `${displayName}: Fogyasztási adatok törölve.`, 4000);
+    showBanner(`${displayName}: Fogyasztási adatok törölve.`, 'success');
   } catch (error) {
     setSettingsStatus('error', `A fogyasztási adatok törlése sikertelen: ${error.message}`);
   }
