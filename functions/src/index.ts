@@ -386,6 +386,8 @@ async function handleRegisterDevice(
       deviceId,
     });
 
+    await rtdb.ref(`acl/${deviceId}/${espUid}`).set(true);
+
     const cmdRef = rtdb.ref(`live/${deviceId}/cmd`);
     const stateRef = rtdb.ref(`live/${deviceId}/state`);
     const aclRef = rtdb.ref(`acl/${deviceId}`);
@@ -609,6 +611,20 @@ export const onDeviceUpdated = onDocumentUpdated(
       const humanUsers = afterAllowed.filter(
         (uid) => uid !== espUid && uid !== deviceId
       );
+
+      const aclMap: Record<string, boolean> = {};
+      for (const uid of humanUsers) {
+        aclMap[uid] = true;
+      }
+      if (espUid) {
+        aclMap[espUid] = true;
+      }
+      if (Object.keys(aclMap).length > 0) {
+        await rtdb.ref(`acl/${deviceId}`).set(aclMap);
+      } else {
+        await rtdb.ref(`acl/${deviceId}`).remove();
+      }
+
       if (humanUsers.length === 0) {
         const cmdRef = rtdb.ref(`live/${deviceId}/cmd`);
         const cmdSnap = await cmdRef.get();
@@ -618,21 +634,11 @@ export const onDeviceUpdated = onDocumentUpdated(
             unpaired: true,
           });
         }
-        await rtdb.ref(`acl/${deviceId}`).remove();
-        // Keep device Auth user, passkeyHash, live/{deviceId}, and
-        // devices/{deviceId} counters so any user with the valid Passkey can
-        // re-pair without physical access or polling.
+        // Keep device Auth user, acl/{deviceId}/{espUid}, passkeyHash,
+        // live/{deviceId}, and devices/{deviceId} counters so the ESP32 stays
+        // online without 401 loops and can be re-paired anytime.
         return;
       }
-
-      const aclMap: Record<string, boolean> = {};
-      for (const uid of humanUsers) {
-        aclMap[uid] = true;
-      }
-      if (espUid) {
-        aclMap[espUid] = true;
-      }
-      await rtdb.ref(`acl/${deviceId}`).set(aclMap);
 
       if (beforeHumans.length === 0) {
         const cmdRef = rtdb.ref(`live/${deviceId}/cmd`);
