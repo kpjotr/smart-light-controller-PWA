@@ -15,6 +15,7 @@ import {
   onSnapshot,
   setDoc,
   updateDoc,
+  deleteDoc,
   arrayRemove,
   deleteField,
   serverTimestamp,
@@ -910,6 +911,19 @@ async function handleAuthSubmit(event) {
   });
 }
 
+function getPairingRejectionMessage(errorCode) {
+  switch (errorCode) {
+    case 'DEVICE_UNINITIALIZED':
+      return 'Az eszköz még nincs inicializálva (még nem csatlakozott az internetre). Először csatlakozz az eszköz saját Wi-Fi hálózatához (SmartLight-XXXX), és a 192.168.4.1 oldalon állítsd be az otthoni Wi-Fi elérést, majd próbáld újra a párosítást!';
+    case 'LOCKED_OUT':
+      return 'Túl sok hibás próbálkozás miatt az eszköz zárolva van. Indítsd újra az eszközt vagy használd a gyári visszaállítást.';
+    case 'INVALID_PASSKEY':
+      return 'Hibás 10 karakteres gyári biztonsági kód (Passkey). Ellenőrizd az eszköz címkéjén vagy a Captive Portalon!';
+    default:
+      return 'A párosítási kérelem elutasításra került. Ellenőrizd az eszköz adatait és próbáld újra.';
+  }
+}
+
 async function handlePairingSubmit(event) {
   event.preventDefault();
   setPairingFeedback('hidden', '');
@@ -952,6 +966,7 @@ async function handlePairingSubmit(event) {
     await setDoc(doc(db, 'pairing_requests', deviceId), {
       pin,
       userId: auth.currentUser.uid,
+      requesterUid: auth.currentUser.uid,
       attempts: 0,
       expiresAt: Timestamp.fromDate(new Date(Date.now() + 5 * 60 * 1000)),
       customName,
@@ -978,6 +993,12 @@ async function handlePairingSubmit(event) {
 
         if (snap.exists()) {
           const reqData = snap.data() || {};
+          if (reqData.status === 'rejected' || typeof reqData.errorCode === 'string') {
+            cleanupPendingPairing();
+            setPairingFeedback('error', getPairingRejectionMessage(reqData.errorCode));
+            deleteDoc(doc(db, 'pairing_requests', deviceId)).catch(() => {});
+            return;
+          }
           if (typeof reqData.attempts === 'number' && reqData.attempts > 0) {
             cleanupPendingPairing();
             setPairingFeedback(

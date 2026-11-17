@@ -1,7 +1,8 @@
 import * as crypto from "crypto";
-import {onRequest} from "firebase-functions/v2/https";
+import {onRequest, Request} from "firebase-functions/v2/https";
+import {Response} from "express";
 import {
-  onDocumentCreated,
+  onDocumentWritten,
   onDocumentUpdated,
   onDocumentDeleted,
 } from "firebase-functions/v2/firestore";
@@ -22,7 +23,9 @@ const rtdb = getDatabase();
 // 1. Védelmi réteg: Statikus Pre-Shared Key
 // (később kiszervezhető Secret Managerbe)
 const ESP_AUTH_TOKEN = "ESP32_SECRET_TOKEN_998877";
-const PASSKEY_REGEX = /^[A-Z0-9]{6,12}$/;
+const PASSKEY_REGEX = /^[A-Z0-9]{10}$/;
+const DEVICE_ID_REGEX = /^SmartLight-[0-9A-Fa-f]{4}$/;
+const ESP_UID_REGEX = /^[0-9A-Fa-f]{12}$/;
 const CUSTOM_NAME_REGEX = /^[A-Za-z0-9 _-]{0,32}$/;
 const MAX_PAIR_ATTEMPTS = 3;
 
@@ -221,7 +224,18 @@ async function removeDeviceRtdbNodes(deviceId: string): Promise<void> {
   ]);
 }
 
-export const verifyPairing = onRequest(async (req, res) => {
+/**
+ * Zero-Touch device self-registration handler for ESP32 boot/Wi-Fi setup.
+ * Persists passkeyHash and default settings, ensures device Auth user and
+ * RTDB live subtree exist, and returns a customToken.
+ * @param {Request} req Incoming HTTPS request.
+ * @param {Response} res Express-compatible response object.
+ * @return {Promise<void>} Resolves once response is sent.
+ */
+async function handleRegisterDevice(
+  req: Request,
+  res: Response
+): Promise<void> {
   // Pre-Shared Key ellenőrzése
   if (req.header("X-Esp-Auth-Token") !== ESP_AUTH_TOKEN) {
     res.status(401).send("Unauthorized");
@@ -233,15 +247,25 @@ export const verifyPairing = onRequest(async (req, res) => {
     body.deviceId.trim() : "";
   const espUid = typeof body.espUid === "string" ?
     body.espUid.trim() : "";
-  const rawPasskey = typeof body.pin === "string" ?
-    body.pin :
-    typeof body.passkey === "string" ?
-      body.passkey :
+  const rawPasskey = typeof body.passkey === "string" ?
+    body.passkey :
+    typeof body.pin === "string" ?
+      body.pin :
       "";
   const normalizedPasskey = rawPasskey.trim().toUpperCase();
 
-  if (!deviceId || deviceId.includes("/") || !normalizedPasskey || !espUid) {
+  if (!deviceId || !espUid || !normalizedPasskey) {
     res.status(400).send("Missing parameters");
+    return;
+  }
+
+  if (!DEVICE_ID_REGEX.test(deviceId)) {
+    res.status(400).send("Invalid deviceId format");
+    return;
+  }
+
+  if (!ESP_UID_REGEX.test(espUid)) {
+    res.status(400).send("Invalid espUid format");
     return;
   }
 
@@ -250,205 +274,204 @@ export const verifyPairing = onRequest(async (req, res) => {
     return;
   }
 
-  const pairingRef = db.collection("pairing_requests").doc(deviceId);
-  const pairingSnap = await pairingRef.get();
-
-  if (!pairingSnap.exists) {
-    res.status(404).send("No active pairing request");
-    return;
-  }
-
-  const data = pairingSnap.data();
-  if (!data || typeof data.userId !== "string" || !data.userId) {
-    res.status(400).send("Invalid pairing request");
-    return;
-  }
-
-  // 3. Védelmi réteg: TTL (Időtúllépés) ellenőrzése
-  if (data.expiresAt && data.expiresAt.toDate() < new Date()) {
-    await pairingRef.delete();
-    res.status(400).send("Pairing request expired");
-    return;
-  }
-
-  // 2. Védelmi réteg: 3-Strike (Brute-force) ellenőrzés
-  const attempts = typeof data.attempts === "number" ? data.attempts : 0;
-  if (attempts >= 3) {
-    await pairingRef.delete();
-    res.status(403).send("Too many failed attempts. Pairing locked.");
-    return;
-  }
-
-  // Gyári biztonsági kód (Passkey) ellenőrzése kis-/nagybetű-függetlenül
-  const storedPin = typeof data.pin === "string" ?
-    data.pin.trim().toUpperCase() :
-    "";
-  if (storedPin !== normalizedPasskey) {
-    await pairingRef.update({attempts: attempts + 1});
-    res.status(401).send("Invalid passkey");
-    return;
-  }
-
-  const rawCustomName = typeof data.customName === "string" ?
-    data.customName.trim() :
-    "";
-  if (!CUSTOM_NAME_REGEX.test(rawCustomName)) {
-    res.status(400).send("Invalid custom name");
-    return;
-  }
-
-  // SIKERES PÁROSÍTÁS: Custom Token + RTDB init, majd Firestore tranzakció
   const deviceRef = db.collection("devices").doc(deviceId);
   let customToken = "";
   try {
-    const initialSnap = await deviceRef.get();
-    const initialData = initialSnap.exists ? (initialSnap.data() ?? {}) : {};
-    const initialThr = isIntInRange(initialData.threshold, 1, 100) ?
-      initialData.threshold : 50;
-    const initialSens = isIntInRange(initialData.sensitivity, 1, 100) ?
-      initialData.sensitivity : 50;
-    const initialDur = isIntInRange(initialData.duration, 10, 600) ?
-      initialData.duration : 60;
-    const initialSafe = isIntInRange(initialData.safety_off_min, 0, 1440) ?
-      initialData.safety_off_min : 0;
-    const initialWattage = isIntInRange(initialData.lamp_wattage_w, 0, 5000) ?
-      initialData.lamp_wattage_w : 0;
-    const initialLamp = typeof initialData.remote_lamp_on === "boolean" ?
-      initialData.remote_lamp_on : false;
+    const resolvedState = await db.runTransaction(async (tx) => {
+      const deviceSnap = await tx.get(deviceRef);
+      const existing = deviceSnap.exists ? (deviceSnap.data() ?? {}) : {};
 
-    const aclMap: Record<string, boolean> = {
-      [data.userId]: true,
-      [espUid]: true,
-    };
-    for (const uid of toUidList(initialData.allowedUsers)) {
-      aclMap[uid] = true;
-    }
+      const thr = isIntInRange(existing.threshold, 1, 100) ?
+        existing.threshold : 60;
+      const sens = isIntInRange(existing.sensitivity, 1, 100) ?
+        existing.sensitivity : 60;
+      const dur = isIntInRange(existing.duration, 10, 600) ?
+        existing.duration : 60;
+      const safe = isIntInRange(existing.safety_off_min, 0, 1440) ?
+        existing.safety_off_min : 100;
+      const wattage = isIntInRange(existing.lamp_wattage_w, 0, 5000) ?
+        existing.lamp_wattage_w : 0;
+      const lamp = typeof existing.remote_lamp_on === "boolean" ?
+        existing.remote_lamp_on : false;
+      const allowedUsers = toUidList(existing.allowedUsers);
+      const humanUsers = allowedUsers.filter(
+        (uid) => uid !== espUid && uid !== deviceId
+      );
+
+      if (!deviceSnap.exists) {
+        tx.set(deviceRef, {
+          espUid,
+          allowedUsers: [],
+          customNames: {},
+          passkeyHash: createSaltedPasskeyHash(normalizedPasskey),
+          failedPairAttempts: 0,
+          duration: dur,
+          sensitivity: sens,
+          threshold: thr,
+          safety_off_min: safe,
+          lamp_wattage_w: wattage,
+          total_on_seconds: 0,
+          lamp_on: false,
+          remote_lamp_on: lamp,
+          restart_requested: false,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      } else {
+        const updatePayload: Record<string, unknown> = {
+          espUid,
+          failedPairAttempts: 0,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+
+        if (!Array.isArray(existing.allowedUsers)) {
+          updatePayload.allowedUsers = [];
+        }
+        if (
+          !existing.customNames ||
+          typeof existing.customNames !== "object" ||
+          Array.isArray(existing.customNames)
+        ) {
+          updatePayload.customNames = {};
+        }
+        if (
+          typeof existing.passkeyHash !== "string" ||
+          !existing.passkeyHash.includes(":")
+        ) {
+          updatePayload.passkeyHash = createSaltedPasskeyHash(
+            normalizedPasskey
+          );
+        }
+        if (!isIntInRange(existing.threshold, 1, 100)) {
+          updatePayload.threshold = thr;
+        }
+        if (!isIntInRange(existing.sensitivity, 1, 100)) {
+          updatePayload.sensitivity = sens;
+        }
+        if (!isIntInRange(existing.duration, 10, 600)) {
+          updatePayload.duration = dur;
+        }
+        if (!isIntInRange(existing.safety_off_min, 0, 1440)) {
+          updatePayload.safety_off_min = safe;
+        }
+        if (!isIntInRange(existing.lamp_wattage_w, 0, 5000)) {
+          updatePayload.lamp_wattage_w = wattage;
+        }
+        if (
+          typeof existing.total_on_seconds !== "number" ||
+          !Number.isFinite(existing.total_on_seconds) ||
+          existing.total_on_seconds < 0
+        ) {
+          updatePayload.total_on_seconds = 0;
+        }
+        if (typeof existing.lamp_on !== "boolean") {
+          updatePayload.lamp_on = false;
+        }
+        if (typeof existing.remote_lamp_on !== "boolean") {
+          updatePayload.remote_lamp_on = lamp;
+        }
+        if (typeof existing.restart_requested !== "boolean") {
+          updatePayload.restart_requested = false;
+        }
+
+        tx.set(deviceRef, updatePayload, {merge: true});
+      }
+
+      return {thr, sens, dur, safe, wattage, lamp, humanUsers};
+    });
 
     await ensureDeviceAuthUser(espUid);
-
     customToken = await getAuth().createCustomToken(espUid, {
       role: "device",
       deviceId,
     });
 
-    await Promise.all([
-      rtdb.ref(`acl/${deviceId}`).update(aclMap),
-      rtdb.ref(`live/${deviceId}`).set({
-        cmd: {
-          lamp: initialLamp,
+    const cmdRef = rtdb.ref(`live/${deviceId}/cmd`);
+    const stateRef = rtdb.ref(`live/${deviceId}/state`);
+    const aclRef = rtdb.ref(`acl/${deviceId}`);
+    const [cmdSnap, stateSnap] = await Promise.all([
+      cmdRef.get(),
+      stateRef.get(),
+    ]);
+
+    const rtdbTasks: Promise<unknown>[] = [];
+    if (!cmdSnap.exists()) {
+      rtdbTasks.push(
+        cmdRef.set({
+          lamp: resolvedState.lamp,
           restart: false,
           unpaired: false,
-          thr: initialThr,
-          sens: initialSens,
-          dur: initialDur,
-          safe: initialSafe,
-          wattage: initialWattage,
-        },
-        state: {
+          thr: resolvedState.thr,
+          sens: resolvedState.sens,
+          dur: resolvedState.dur,
+          safe: resolvedState.safe,
+          wattage: resolvedState.wattage,
+        })
+      );
+    }
+    if (!stateSnap.exists()) {
+      rtdbTasks.push(
+        stateRef.set({
           on: false,
           auto: false,
           lux: 0,
           mot: false,
           ts: ServerValue.TIMESTAMP,
           energy_delta_sec: 0,
-        },
-      }),
-    ]);
+        })
+      );
+    }
+    if (resolvedState.humanUsers.length > 0) {
+      const aclMap: Record<string, boolean> = {[espUid]: true};
+      for (const uid of resolvedState.humanUsers) {
+        aclMap[uid] = true;
+      }
+      rtdbTasks.push(aclRef.update(aclMap));
+    }
 
-    await db.runTransaction(async (tx) => {
-      const deviceSnap = await tx.get(deviceRef);
-      const existing = deviceSnap.exists ? (deviceSnap.data() ?? {}) : {};
-
-      const existingCustomNames = existing.customNames;
-      const customNames: Record<string, string> =
-        existingCustomNames &&
-        typeof existingCustomNames === "object" &&
-        !Array.isArray(existingCustomNames) ?
-          {...(existingCustomNames as Record<string, string>)} :
-          {};
-
-      if (rawCustomName.length > 0) {
-        customNames[data.userId] = rawCustomName;
-      } else {
-        delete customNames[data.userId];
-      }
-
-      const updatePayload: Record<string, unknown> = {
-        allowedUsers: admin.firestore.FieldValue.arrayUnion(
-          data.userId,
-          espUid
-        ),
-        espUid,
-        customNames,
-        passkeyHash: createSaltedPasskeyHash(normalizedPasskey),
-        failedPairAttempts: 0,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      };
-
-      if (!isIntInRange(existing.threshold, 1, 100)) {
-        updatePayload.threshold = initialThr;
-      }
-      if (!isIntInRange(existing.sensitivity, 1, 100)) {
-        updatePayload.sensitivity = initialSens;
-      }
-      if (!isIntInRange(existing.duration, 10, 600)) {
-        updatePayload.duration = initialDur;
-      }
-      if (!isIntInRange(existing.safety_off_min, 0, 1440)) {
-        updatePayload.safety_off_min = initialSafe;
-      }
-      if (typeof existing.remote_lamp_on !== "boolean") {
-        updatePayload.remote_lamp_on = initialLamp;
-      }
-      if (typeof existing.restart_requested !== "boolean") {
-        updatePayload.restart_requested = false;
-      }
-      if (!isIntInRange(existing.lamp_wattage_w, 0, 5000)) {
-        updatePayload.lamp_wattage_w = initialWattage;
-      }
-      if (
-        typeof existing.total_on_seconds !== "number" ||
-        !Number.isFinite(existing.total_on_seconds) ||
-        existing.total_on_seconds < 0
-      ) {
-        updatePayload.total_on_seconds = 0;
-      }
-
-      tx.set(deviceRef, updatePayload, {merge: true});
-      tx.delete(pairingRef);
-    });
+    if (rtdbTasks.length > 0) {
+      await Promise.all(rtdbTasks);
+    }
   } catch (err) {
-    console.error("verifyPairing failed:", err);
+    console.error("registerDevice failed:", err);
     res.status(500).json({error: "Internal server error"});
     return;
   }
 
   res.status(200).json({ok: true, deviceId, customToken});
-});
+}
 
-export const onPairingRequestCreated = onDocumentCreated(
+export const verifyPairing = onRequest(handleRegisterDevice);
+export const registerDevice = onRequest(handleRegisterDevice);
+
+export const onPairingRequestCreated = onDocumentWritten(
   {
     document: "pairing_requests/{deviceId}",
     database: "(default)",
     region: RTDB_REGION,
   },
   async (event) => {
-    const snap = event.data;
-    if (!snap) {
+    const snap = event.data?.after;
+    if (!snap || !snap.exists) {
       return;
     }
     const deviceId = event.params.deviceId;
     const reqData = snap.data() ?? {};
+    if (reqData.status === "rejected") {
+      return;
+    }
 
-    const requesterUid = typeof reqData.userId === "string" ?
-      reqData.userId.trim() :
-      typeof reqData.uid === "string" ?
-        reqData.uid.trim() :
-        "";
-    const rawPasskey = typeof reqData.pin === "string" ?
-      reqData.pin :
-      typeof reqData.passkey === "string" ?
-        reqData.passkey :
+    const requesterUid = typeof reqData.requesterUid === "string" ?
+      reqData.requesterUid.trim() :
+      typeof reqData.userId === "string" ?
+        reqData.userId.trim() :
+        typeof reqData.uid === "string" ?
+          reqData.uid.trim() :
+          "";
+    const rawPasskey = typeof reqData.passkey === "string" ?
+      reqData.passkey :
+      typeof reqData.pin === "string" ?
+        reqData.pin :
         "";
     const normalizedPasskey = rawPasskey.trim().toUpperCase();
     const rawCustomName = typeof reqData.customName === "string" ?
@@ -459,32 +482,33 @@ export const onPairingRequestCreated = onDocumentCreated(
 
     await db.runTransaction(async (tx) => {
       const deviceSnap = await tx.get(deviceRef);
-      if (!deviceSnap.exists) {
-        // Unclaimed device: leave pairing_requests/{deviceId} for ESP32
-        // verifyPairing polling.
-        return;
-      }
-
       const deviceData = deviceSnap.data() ?? {};
-      const existingAllowed = toUidList(deviceData.allowedUsers);
-      const espUid = typeof deviceData.espUid === "string" ?
-        deviceData.espUid.trim() : "";
-      const humanUsers = existingAllowed.filter(
-        (uid) => uid !== espUid && uid !== deviceId
-      );
 
-      if (humanUsers.length === 0) {
-        // Soft-unpaired device with no human owners: leave for ESP32
-        // verifyPairing polling.
+      // Case A: Uninitialized device (never booted/connected to cloud yet)
+      if (
+        !deviceSnap.exists ||
+        typeof deviceData.passkeyHash !== "string" ||
+        !deviceData.passkeyHash.includes(":")
+      ) {
+        tx.update(pairingRef, {
+          status: "rejected",
+          errorCode: "DEVICE_UNINITIALIZED",
+        });
         return;
       }
+
+      // Case B: Initialized device (works for 0, 1, or N existing owners)
+      const existingAllowed = toUidList(deviceData.allowedUsers);
 
       if (
         !requesterUid ||
         !PASSKEY_REGEX.test(normalizedPasskey) ||
         !CUSTOM_NAME_REGEX.test(rawCustomName)
       ) {
-        tx.delete(pairingRef);
+        tx.update(pairingRef, {
+          status: "rejected",
+          errorCode: "INVALID_PASSKEY",
+        });
         return;
       }
 
@@ -508,16 +532,25 @@ export const onPairingRequestCreated = onDocumentCreated(
           deviceData.failedPairAttempts :
           0;
       if (failedAttempts >= MAX_PAIR_ATTEMPTS) {
-        tx.delete(pairingRef);
+        tx.update(pairingRef, {
+          status: "rejected",
+          errorCode: "LOCKED_OUT",
+        });
         return;
       }
 
       if (!verifyPasskeyHash(normalizedPasskey, deviceData.passkeyHash)) {
+        const nextAttempts = failedAttempts + 1;
         tx.update(deviceRef, {
-          failedPairAttempts: failedAttempts + 1,
+          failedPairAttempts: nextAttempts,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
-        tx.delete(pairingRef);
+        tx.update(pairingRef, {
+          status: "rejected",
+          errorCode: nextAttempts >= MAX_PAIR_ATTEMPTS ?
+            "LOCKED_OUT" : "INVALID_PASSKEY",
+          attempts: nextAttempts,
+        });
         return;
       }
 
@@ -570,6 +603,9 @@ export const onDeviceUpdated = onDocumentUpdated(
     const espUid = afterEspUid || beforeEspUid;
 
     if (allowedChanged) {
+      const beforeHumans = beforeAllowed.filter(
+        (uid) => uid !== espUid && uid !== deviceId
+      );
       const humanUsers = afterAllowed.filter(
         (uid) => uid !== espUid && uid !== deviceId
       );
@@ -582,22 +618,29 @@ export const onDeviceUpdated = onDocumentUpdated(
             unpaired: true,
           });
         }
-        await removeDeviceRtdbNodes(deviceId);
-        await revokeAndDeleteDeviceAuthUsers([
-          afterEspUid,
-          beforeEspUid,
-          deviceId,
-        ]);
-        // Keep devices/{deviceId} so total_on_seconds & lamp_wattage_w persist
-        // across unpair/re-pair cycles.
+        await rtdb.ref(`acl/${deviceId}`).remove();
+        // Keep device Auth user, passkeyHash, live/{deviceId}, and
+        // devices/{deviceId} counters so any user with the valid Passkey can
+        // re-pair without physical access or polling.
         return;
       }
 
       const aclMap: Record<string, boolean> = {};
-      for (const uid of afterAllowed) {
+      for (const uid of humanUsers) {
         aclMap[uid] = true;
       }
+      if (espUid) {
+        aclMap[espUid] = true;
+      }
       await rtdb.ref(`acl/${deviceId}`).set(aclMap);
+
+      if (beforeHumans.length === 0) {
+        const cmdRef = rtdb.ref(`live/${deviceId}/cmd`);
+        const cmdSnap = await cmdRef.get();
+        if (cmdSnap.exists()) {
+          await cmdRef.update({unpaired: false});
+        }
+      }
     }
 
     const cmdUpdates: Record<string, unknown> = {};
