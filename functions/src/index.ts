@@ -89,6 +89,46 @@ async function safeRevokeRefreshTokens(uid: string): Promise<void> {
 }
 
 /**
+ * Deletes a Firebase Auth user, ignoring missing user records.
+ * @param {string} uid Firebase Auth UID to delete.
+ * @return {Promise<void>} Resolves when deletion finishes or user is absent.
+ */
+async function safeDeleteAuthUser(uid: string): Promise<void> {
+  try {
+    await getAuth().deleteUser(uid);
+  } catch (error) {
+    const code = (error as {code?: string})?.code;
+    if (code !== "auth/user-not-found") {
+      throw error;
+    }
+  }
+}
+
+/**
+ * Ensures a Firebase Auth user record exists for the given device UID.
+ * @param {string} uid Device Firebase Auth UID.
+ * @return {Promise<void>} Resolves when the Auth user exists or is created.
+ */
+async function ensureDeviceAuthUser(uid: string): Promise<void> {
+  try {
+    await getAuth().getUser(uid);
+  } catch (error) {
+    const code = (error as {code?: string})?.code;
+    if (code !== "auth/user-not-found") {
+      throw error;
+    }
+    try {
+      await getAuth().createUser({uid});
+    } catch (createErr) {
+      const createCode = (createErr as {code?: string})?.code;
+      if (createCode !== "auth/uid-already-exists") {
+        throw createErr;
+      }
+    }
+  }
+}
+
+/**
  * Deletes live and acl RTDB subtrees for a device.
  * @param {string} deviceId Device identifier.
  * @return {Promise<void>} Resolves when both RTDB nodes are removed.
@@ -203,6 +243,8 @@ export const verifyPairing = onRequest(async (req, res) => {
       aclMap[uid] = true;
     }
 
+    await ensureDeviceAuthUser(espUid);
+
     customToken = await getAuth().createCustomToken(espUid, {
       role: "device",
       deviceId,
@@ -214,6 +256,7 @@ export const verifyPairing = onRequest(async (req, res) => {
         cmd: {
           lamp: initialLamp,
           restart: false,
+          unpaired: false,
           thr: initialThr,
           sens: initialSens,
           dur: initialDur,
@@ -319,10 +362,22 @@ export const onDeviceUpdated = onDocumentUpdated(
     if (allowedChanged) {
       const humanUsers = afterAllowed.filter((uid) => uid !== espUid);
       if (humanUsers.length === 0) {
+        const cmdRef = rtdb.ref(`live/${deviceId}/cmd`);
+        const cmdSnap = await cmdRef.get();
+        if (cmdSnap.exists()) {
+          await cmdRef.update({
+            lamp: false,
+            unpaired: true,
+          });
+        }
+        await Promise.all([
+          rtdb.ref(`acl/${deviceId}`).remove(),
+          rtdb.ref(`live/${deviceId}/state`).remove(),
+        ]);
         if (espUid) {
           await safeRevokeRefreshTokens(espUid);
+          await safeDeleteAuthUser(espUid);
         }
-        await removeDeviceRtdbNodes(deviceId);
         // Keep devices/{deviceId} so total_on_seconds & lamp_wattage_w persist
         // across unpair/re-pair cycles.
         return;
@@ -395,6 +450,7 @@ export const onDeviceDeleted = onDocumentDeleted(
 
     if (espUid) {
       await safeRevokeRefreshTokens(espUid);
+      await safeDeleteAuthUser(espUid);
     }
     await removeDeviceRtdbNodes(deviceId);
   }

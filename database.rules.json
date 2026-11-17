@@ -9,7 +9,7 @@
     "live": {
       "$deviceId": {
         "cmd": {
-          ".read": "auth != null && root.child('acl').child($deviceId).child(auth.uid).val() === true",
+          ".read": "auth != null && ((auth.token.role === 'device' && auth.token.deviceId === $deviceId) || (auth.token.role != 'device' && root.child('acl').child($deviceId).child(auth.uid).val() === true))",
           ".write": "auth != null && auth.token.role != 'device' && root.child('acl').child($deviceId).child(auth.uid).val() === true && newData.exists()",
           ".validate": "newData.hasChildren(['lamp', 'restart', 'thr', 'sens', 'dur', 'safe'])",
           "lamp": {
@@ -17,6 +17,9 @@
           },
           "restart": {
             ".write": "auth != null && auth.token.role === 'device' && auth.token.deviceId === $deviceId && root.child('acl').child($deviceId).child(auth.uid).val() === true && newData.isBoolean() && newData.val() === false",
+            ".validate": "newData.isBoolean()"
+          },
+          "unpaired": {
             ".validate": "newData.isBoolean()"
           },
           "thr": {
