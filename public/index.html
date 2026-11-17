@@ -157,6 +157,13 @@
             </div>
             <p class="param-helper">Manuális kapcsolás biztonsági időzítője (0 = kikapcsolva).</p>
           </div>
+          <div class="param-block">
+            <div class="param-row">
+              <label for="lamp_wattage_w-num">Lámpa teljesítménye (W)</label>
+              <input type="number" class="param-num-input" id="lamp_wattage_w-num" min="0" max="5000" step="1" value="0" inputmode="numeric" required>
+            </div>
+            <p class="param-helper">0 W esetén a fogyasztásmérés rejtve marad</p>
+          </div>
         </div>
         <button type="submit" class="btn btn-primary btn-full" id="save-settings-btn">Beállítások mentése</button>
         <p class="settings-status-line" id="settings-error" role="status" aria-live="polite">&nbsp;</p>
@@ -168,6 +175,7 @@
           <button type="button" class="btn btn-warning" id="restart-btn">Újraindítás</button>
           <button type="button" class="btn btn-danger" id="unpair-btn">Leválasztás</button>
         </div>
+        <button type="button" class="btn btn-secondary btn-full hidden" id="reset-consumption-btn">Fogyasztási adatok törlése</button>
       </div>
     </div>
   </dialog>

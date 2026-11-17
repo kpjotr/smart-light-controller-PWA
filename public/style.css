@@ -418,6 +418,7 @@ button:focus-visible {
 }
 
 .device-info {
+  flex: 1 1 auto;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -461,6 +462,20 @@ button:focus-visible {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+}
+
+.device-kwh {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  line-height: 1.2;
 }
 
 .auto-indicator {
@@ -590,8 +605,8 @@ dialog.modal::backdrop {
 }
 
 dialog.settings-modal {
-  height: calc(var(--app-h, 100dvh) - 12px);
-  max-height: min(680px, calc(var(--app-h, 100dvh) - 12px));
+  height: auto;
+  max-height: min(740px, calc(var(--app-h, 100dvh) - 12px));
   padding: clamp(8px, 1.8vh, 16px);
   gap: clamp(6px, 1.2vh, 12px);
 }
@@ -670,12 +685,11 @@ dialog.settings-modal .modal-header {
 }
 
 .settings-modal-body {
-  flex: 1 1 0%;
+  flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
   gap: clamp(6px, 1.2vh, 10px);
   padding: 0;
 }
@@ -691,7 +705,7 @@ dialog.settings-modal .modal-header {
   flex-direction: column;
   gap: clamp(4px, 1vh, 10px);
   min-height: 0;
-  flex-shrink: 1;
+  flex-shrink: 0;
 }
 
 .modal-box-danger {

@@ -41,6 +41,8 @@ service cloud.firestore {
         'safety_off_min',
         'remote_lamp_on',
         'restart_requested',
+        'lamp_wattage_w',
+        'total_on_seconds',
         'updatedAt',
         'customNames'
       ];
@@ -55,6 +57,16 @@ service cloud.firestore {
         && (!('safety_off_min' in data) || isBoundedInt(data.safety_off_min, 0, 1440))
         && (!('remote_lamp_on' in data) || data.remote_lamp_on is bool)
         && (!('restart_requested' in data) || data.restart_requested is bool)
+        && (!('lamp_wattage_w' in changedKeys) || (
+          'lamp_wattage_w' in data
+          && isBoundedInt(data.lamp_wattage_w, 0, 5000)
+        ))
+        && (!('total_on_seconds' in changedKeys) || (
+          'total_on_seconds' in data
+          && data.total_on_seconds is int
+          && data.total_on_seconds == 0
+          && (!('espUid' in prev) || request.auth.uid != prev.espUid)
+        ))
         && (!('updatedAt' in changedKeys) || data.updatedAt is timestamp)
         && isValidCustomNamesUpdate();
     }
@@ -103,7 +115,6 @@ service cloud.firestore {
         && request.auth.uid in resource.data.allowedUsers;
       allow create, delete: if false;
       allow update: if isAllowedUser()
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['total_on_seconds'])
         && (isValidDeviceSettingsUpdate() || isValidSelfUnpair());
 
       match /logs/{logId} {

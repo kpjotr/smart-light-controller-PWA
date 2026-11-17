@@ -3,7 +3,7 @@ import {
   onDocumentUpdated,
   onDocumentDeleted,
 } from "firebase-functions/v2/firestore";
-import {onValueUpdated} from "firebase-functions/v2/database";
+import {onValueUpdated, onValueWritten} from "firebase-functions/v2/database";
 import * as admin from "firebase-admin";
 import {getAuth} from "firebase-admin/auth";
 import {getDatabase, ServerValue} from "firebase-admin/database";
@@ -190,6 +190,8 @@ export const verifyPairing = onRequest(async (req, res) => {
       initialData.duration : 60;
     const initialSafe = isIntInRange(initialData.safety_off_min, 0, 1440) ?
       initialData.safety_off_min : 0;
+    const initialWattage = isIntInRange(initialData.lamp_wattage_w, 0, 5000) ?
+      initialData.lamp_wattage_w : 0;
     const initialLamp = typeof initialData.remote_lamp_on === "boolean" ?
       initialData.remote_lamp_on : false;
 
@@ -216,6 +218,7 @@ export const verifyPairing = onRequest(async (req, res) => {
           sens: initialSens,
           dur: initialDur,
           safe: initialSafe,
+          wattage: initialWattage,
         },
         state: {
           on: false,
@@ -274,9 +277,13 @@ export const verifyPairing = onRequest(async (req, res) => {
       if (typeof existing.restart_requested !== "boolean") {
         updatePayload.restart_requested = false;
       }
+      if (!isIntInRange(existing.lamp_wattage_w, 0, 5000)) {
+        updatePayload.lamp_wattage_w = initialWattage;
+      }
       if (
         typeof existing.total_on_seconds !== "number" ||
-        !Number.isFinite(existing.total_on_seconds)
+        !Number.isFinite(existing.total_on_seconds) ||
+        existing.total_on_seconds < 0
       ) {
         updatePayload.total_on_seconds = 0;
       }
@@ -316,6 +323,8 @@ export const onDeviceUpdated = onDocumentUpdated(
           await safeRevokeRefreshTokens(espUid);
         }
         await removeDeviceRtdbNodes(deviceId);
+        // Keep devices/{deviceId} so total_on_seconds & lamp_wattage_w persist
+        // across unpair/re-pair cycles.
         return;
       }
 
@@ -363,6 +372,12 @@ export const onDeviceUpdated = onDocumentUpdated(
     ) {
       cmdUpdates.safe = after.safety_off_min;
     }
+    if (
+      isIntInRange(after.lamp_wattage_w, 0, 5000) &&
+      after.lamp_wattage_w !== before.lamp_wattage_w
+    ) {
+      cmdUpdates.wattage = after.lamp_wattage_w;
+    }
 
     if (Object.keys(cmdUpdates).length > 0) {
       await rtdb.ref(`live/${deviceId}/cmd`).update(cmdUpdates);
@@ -407,6 +422,40 @@ export const onEnergyDeltaUpdated = onValueUpdated(
       total_on_seconds: admin.firestore.FieldValue.increment(delta),
     });
     await event.data.after.ref.set(0);
+  }
+);
+
+export const onDeviceWattageUpdated = onValueWritten(
+  {
+    ref: "/live/{deviceId}/state/wattage",
+    instance: RTDB_INSTANCE,
+    region: RTDB_REGION,
+  },
+  async (event) => {
+    if (!event.data.after.exists()) {
+      return;
+    }
+    const deviceId = event.params.deviceId;
+    const wattage = event.data.after.val();
+    if (!isIntInRange(wattage, 0, 5000)) {
+      return;
+    }
+
+    const deviceRef = db.collection("devices").doc(deviceId);
+    const deviceSnap = await deviceRef.get();
+    if (!deviceSnap.exists) {
+      return;
+    }
+
+    const current = deviceSnap.data()?.lamp_wattage_w;
+    if (current === wattage) {
+      return;
+    }
+
+    await deviceRef.update({
+      lamp_wattage_w: wattage,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
   }
 );
 

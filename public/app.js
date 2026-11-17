@@ -32,6 +32,7 @@ const PARAM_SPECS = [
   { key: 'sensitivity', label: 'Mozgás érzékenység', min: 1, max: 100, fallback: 50 },
   { key: 'duration', label: 'Késleltetés (mp)', min: 10, max: 600, fallback: 60 },
   { key: 'safety_off_min', label: 'Auto kikapcs (p)', min: 0, max: 1440, fallback: 0 },
+  { key: 'lamp_wattage_w', label: 'Lámpa teljesítménye (W)', min: 0, max: 5000, fallback: 0 },
 ];
 
 const PASSKEY_REGEX = /^[A-Z0-9]{10}$/;
@@ -81,6 +82,7 @@ const els = {
   settingsError: document.getElementById('settings-error'),
   restartBtn: document.getElementById('restart-btn'),
   unpairBtn: document.getElementById('unpair-btn'),
+  resetConsumptionBtn: document.getElementById('reset-consumption-btn'),
   restartModal: document.getElementById('restart-modal'),
   restartModalDesc: document.getElementById('restart-modal-desc'),
   restartModalClose: document.getElementById('restart-modal-close'),
@@ -311,6 +313,19 @@ function clampIntParam(val, min, max, fallback) {
     : fallback;
 }
 
+function getDeviceWattage(device) {
+  if (!device) return 0;
+  const liveState = liveStateById.get(device.id);
+  const raw = Number(device.lamp_wattage_w ?? liveState?.wattage ?? 0);
+  if (!Number.isFinite(raw) || raw <= 0) return 0;
+  return Math.min(5000, Math.round(raw));
+}
+
+function getDeviceTotalOnSeconds(device) {
+  const raw = Number(device?.total_on_seconds ?? 0);
+  return Number.isFinite(raw) && raw > 0 ? raw : 0;
+}
+
 function buildFullCmdPayload(device, overrides = {}) {
   return {
     lamp: Boolean(device?.remote_lamp_on),
@@ -319,6 +334,7 @@ function buildFullCmdPayload(device, overrides = {}) {
     sens: clampIntParam(device?.sensitivity, 1, 100, 50),
     dur: clampIntParam(device?.duration, 10, 600, 60),
     safe: clampIntParam(device?.safety_off_min, 0, 1440, 0),
+    wattage: getDeviceWattage(device),
     ...overrides,
   };
 }
@@ -531,6 +547,16 @@ function renderDeviceList() {
     const actions = document.createElement('div');
     actions.className = 'device-actions';
 
+    const wattage = getDeviceWattage(device);
+    if (wattage > 0) {
+      const totalSec = getDeviceTotalOnSeconds(device);
+      const kwh = (totalSec / 3600) * (wattage / 1000);
+      const kwhBadge = document.createElement('span');
+      kwhBadge.className = 'device-kwh';
+      kwhBadge.textContent = `${kwh.toFixed(2)} kWh`;
+      actions.append(kwhBadge);
+    }
+
     const autoIndicator = document.createElement('span');
     autoIndicator.className = `auto-indicator${isAutoActive ? ' is-active' : ''}`;
     autoIndicator.setAttribute('aria-hidden', 'true');
@@ -629,14 +655,21 @@ function populateSettingsModal(deviceId, forcePopulate = false) {
   els.restartBtn.disabled = isRestarting;
   els.restartBtn.textContent = isRestarting ? 'Újraindítás...' : 'Újraindítás';
 
+  const wattage = getDeviceWattage(data);
+  els.resetConsumptionBtn.classList.toggle('hidden', wattage <= 0);
+
   for (const spec of PARAM_SPECS) {
     const numEl = document.getElementById(`${spec.key}-num`);
     const isFocused = document.activeElement === numEl;
     if (!forcePopulate && (isFocused || dirtyParams.has(spec.key))) {
       continue;
     }
-    const rawVal = typeof data[spec.key] === 'number' && Number.isFinite(data[spec.key])
-      ? data[spec.key]
+    const candidate = spec.key === 'lamp_wattage_w'
+      ? (data.lamp_wattage_w ?? liveStateById.get(deviceId)?.wattage ?? spec.fallback)
+      : data[spec.key];
+    const numericVal = Number(candidate);
+    const rawVal = candidate !== null && candidate !== undefined && candidate !== '' && Number.isFinite(numericVal)
+      ? numericVal
       : spec.fallback;
     const clamped = Math.min(spec.max, Math.max(spec.min, Math.round(rawVal)));
     numEl.value = String(clamped);
@@ -966,6 +999,7 @@ async function handleSettingsSubmit(event) {
         sens: payload.sensitivity,
         dur: payload.duration,
         safe: payload.safety_off_min,
+        wattage: payload.lamp_wattage_w,
       };
       const cmdPayload = liveCmdById.has(deviceId)
         ? rtdbCmdPatch
@@ -1016,6 +1050,30 @@ async function handleRestartConfirm() {
       isRestartSubmitting = false;
       els.restartCancelBtn.disabled = false;
       els.restartModalClose.disabled = false;
+    }
+  });
+}
+
+async function handleResetConsumption() {
+  const deviceId = uiState.settingsDeviceId;
+  if (!deviceId || !currentUser) return;
+  const device = devicesById.get(deviceId);
+  if (!device || getDeviceWattage(device) <= 0) return;
+
+  const displayName = getDeviceDisplayName(device);
+  if (!window.confirm(`Biztosan törlöd a(z) "${displayName}" fogyasztási adatait (0.00 kWh)?`)) {
+    return;
+  }
+
+  await runWithButtonLock(els.resetConsumptionBtn, 'Törlés...', async () => {
+    try {
+      await updateDoc(doc(db, 'devices', deviceId), {
+        total_on_seconds: 0,
+        updatedAt: serverTimestamp(),
+      });
+      setSettingsStatus('success', `${displayName}: Fogyasztási adatok törölve.`, 4000);
+    } catch (error) {
+      setSettingsStatus('error', `A fogyasztási adatok törlése sikertelen: ${error.message}`);
     }
   });
 }
@@ -1146,6 +1204,7 @@ function init() {
   });
 
   els.configForm.addEventListener('submit', handleSettingsSubmit);
+  els.resetConsumptionBtn.addEventListener('click', handleResetConsumption);
   els.unpairBtn.addEventListener('click', handleUnpair);
   bindModalEvents();
 
