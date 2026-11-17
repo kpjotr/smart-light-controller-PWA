@@ -1,5 +1,7 @@
+import * as crypto from "crypto";
 import {onRequest} from "firebase-functions/v2/https";
 import {
+  onDocumentCreated,
   onDocumentUpdated,
   onDocumentDeleted,
 } from "firebase-functions/v2/firestore";
@@ -22,6 +24,62 @@ const rtdb = getDatabase();
 const ESP_AUTH_TOKEN = "ESP32_SECRET_TOKEN_998877";
 const PASSKEY_REGEX = /^[A-Z0-9]{6,12}$/;
 const CUSTOM_NAME_REGEX = /^[A-Za-z0-9 _-]{0,32}$/;
+const MAX_PAIR_ATTEMPTS = 3;
+
+/**
+ * Computes a salted SHA-256 hex digest for a normalized device passkey.
+ * @param {string} passkey Normalized uppercase device passkey.
+ * @param {string} saltHex Hex-encoded salt string.
+ * @return {string} Hex-encoded SHA-256 digest.
+ */
+function hashPasskeyWithSalt(passkey: string, saltHex: string): string {
+  return crypto
+    .createHash("sha256")
+    .update(`${saltHex}:${passkey}`, "utf8")
+    .digest("hex");
+}
+
+/**
+ * Generates a salted SHA-256 verifier string (`salt:digest`) for a passkey.
+ * @param {string} passkey Normalized uppercase device passkey.
+ * @return {string} Salted SHA-256 verifier string.
+ */
+function createSaltedPasskeyHash(passkey: string): string {
+  const saltHex = crypto.randomBytes(16).toString("hex");
+  const digestHex = hashPasskeyWithSalt(passkey, saltHex);
+  return `${saltHex}:${digestHex}`;
+}
+
+/**
+ * Verifies a passkey against a stored `salt:digest` SHA-256 verifier
+ * using constant-time comparison.
+ * @param {string} passkey Normalized uppercase candidate passkey.
+ * @param {unknown} storedVerifier Stored `salt:digest` string.
+ * @return {boolean} True when candidate matches stored verifier.
+ */
+function verifyPasskeyHash(passkey: string, storedVerifier: unknown): boolean {
+  if (typeof storedVerifier !== "string") {
+    return false;
+  }
+  const parts = storedVerifier.split(":");
+  if (parts.length !== 2) {
+    return false;
+  }
+  const [saltHex, expectedHex] = parts;
+  if (
+    !/^[0-9a-f]{16,64}$/i.test(saltHex) ||
+    !/^[0-9a-f]{64}$/i.test(expectedHex)
+  ) {
+    return false;
+  }
+  const actualHex = hashPasskeyWithSalt(passkey, saltHex);
+  const actualBuf = Buffer.from(actualHex, "hex");
+  const expectedBuf = Buffer.from(expectedHex, "hex");
+  if (actualBuf.length !== expectedBuf.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(actualBuf, expectedBuf);
+}
 
 /**
  * Checks whether a value is an integer within an inclusive range.
@@ -322,6 +380,8 @@ export const verifyPairing = onRequest(async (req, res) => {
         ),
         espUid,
         customNames,
+        passkeyHash: createSaltedPasskeyHash(normalizedPasskey),
+        failedPairAttempts: 0,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       };
 
@@ -365,6 +425,126 @@ export const verifyPairing = onRequest(async (req, res) => {
 
   res.status(200).json({ok: true, deviceId, customToken});
 });
+
+export const onPairingRequestCreated = onDocumentCreated(
+  {
+    document: "pairing_requests/{deviceId}",
+    database: "(default)",
+    region: RTDB_REGION,
+  },
+  async (event) => {
+    const snap = event.data;
+    if (!snap) {
+      return;
+    }
+    const deviceId = event.params.deviceId;
+    const reqData = snap.data() ?? {};
+
+    const requesterUid = typeof reqData.userId === "string" ?
+      reqData.userId.trim() :
+      typeof reqData.uid === "string" ?
+        reqData.uid.trim() :
+        "";
+    const rawPasskey = typeof reqData.pin === "string" ?
+      reqData.pin :
+      typeof reqData.passkey === "string" ?
+        reqData.passkey :
+        "";
+    const normalizedPasskey = rawPasskey.trim().toUpperCase();
+    const rawCustomName = typeof reqData.customName === "string" ?
+      reqData.customName.trim() : "";
+
+    const deviceRef = db.collection("devices").doc(deviceId);
+    const pairingRef = snap.ref;
+
+    await db.runTransaction(async (tx) => {
+      const deviceSnap = await tx.get(deviceRef);
+      if (!deviceSnap.exists) {
+        // Unclaimed device: leave pairing_requests/{deviceId} for ESP32
+        // verifyPairing polling.
+        return;
+      }
+
+      const deviceData = deviceSnap.data() ?? {};
+      const existingAllowed = toUidList(deviceData.allowedUsers);
+      const espUid = typeof deviceData.espUid === "string" ?
+        deviceData.espUid.trim() : "";
+      const humanUsers = existingAllowed.filter(
+        (uid) => uid !== espUid && uid !== deviceId
+      );
+
+      if (humanUsers.length === 0) {
+        // Soft-unpaired device with no human owners: leave for ESP32
+        // verifyPairing polling.
+        return;
+      }
+
+      if (
+        !requesterUid ||
+        !PASSKEY_REGEX.test(normalizedPasskey) ||
+        !CUSTOM_NAME_REGEX.test(rawCustomName)
+      ) {
+        tx.delete(pairingRef);
+        return;
+      }
+
+      if (
+        reqData.expiresAt &&
+        typeof reqData.expiresAt.toDate === "function" &&
+        reqData.expiresAt.toDate() < new Date()
+      ) {
+        tx.delete(pairingRef);
+        return;
+      }
+
+      if (existingAllowed.includes(requesterUid)) {
+        tx.delete(pairingRef);
+        return;
+      }
+
+      const failedAttempts =
+        typeof deviceData.failedPairAttempts === "number" &&
+        Number.isFinite(deviceData.failedPairAttempts) ?
+          deviceData.failedPairAttempts :
+          0;
+      if (failedAttempts >= MAX_PAIR_ATTEMPTS) {
+        tx.delete(pairingRef);
+        return;
+      }
+
+      if (!verifyPasskeyHash(normalizedPasskey, deviceData.passkeyHash)) {
+        tx.update(deviceRef, {
+          failedPairAttempts: failedAttempts + 1,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        tx.delete(pairingRef);
+        return;
+      }
+
+      const existingCustomNames = deviceData.customNames;
+      const customNames: Record<string, string> =
+        existingCustomNames &&
+        typeof existingCustomNames === "object" &&
+        !Array.isArray(existingCustomNames) ?
+          {...(existingCustomNames as Record<string, string>)} :
+          {};
+
+      if (rawCustomName.length > 0) {
+        customNames[requesterUid] = rawCustomName;
+      } else {
+        delete customNames[requesterUid];
+      }
+
+      tx.update(deviceRef, {
+        allowedUsers: admin.firestore.FieldValue.arrayUnion(requesterUid),
+        customNames,
+        failedPairAttempts: 0,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      tx.delete(pairingRef);
+    });
+  }
+);
 
 export const onDeviceUpdated = onDocumentUpdated(
   {

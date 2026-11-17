@@ -1001,7 +1001,10 @@ async function handlePairingSubmit(event) {
               completePairingSuccess(deviceId);
             } else {
               cleanupPendingPairing();
-              setPairingFeedback('error', 'A párosítási kérelem lejárt vagy megszakadt.');
+              setPairingFeedback(
+                'error',
+                'A párosítási kérelem sikertelen: hibás Passkey kód, zárolás vagy időtúllépés.'
+              );
             }
           }, PAIRING_GRACE_MS);
         }

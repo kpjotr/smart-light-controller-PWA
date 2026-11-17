@@ -115,6 +115,7 @@ service cloud.firestore {
         && request.auth.uid in resource.data.allowedUsers;
       allow create, delete: if false;
       allow update: if isAllowedUser()
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['passkeyHash', 'failedPairAttempts'])
         && (isValidDeviceSettingsUpdate() || isValidSelfUnpair());
 
       match /logs/{logId} {
