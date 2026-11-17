@@ -367,7 +367,11 @@ export const verifyPairing = onRequest(async (req, res) => {
 });
 
 export const onDeviceUpdated = onDocumentUpdated(
-  "devices/{deviceId}",
+  {
+    document: "devices/{deviceId}",
+    database: "(default)",
+    region: RTDB_REGION,
+  },
   async (event) => {
     if (!event.data) {
       return;
@@ -379,11 +383,16 @@ export const onDeviceUpdated = onDocumentUpdated(
     const beforeAllowed = toUidList(before.allowedUsers);
     const afterAllowed = toUidList(after.allowedUsers);
     const allowedChanged = !areStringListsEqual(beforeAllowed, afterAllowed);
-    const espUid = typeof after.espUid === "string" ?
+    const afterEspUid = typeof after.espUid === "string" ?
       after.espUid.trim() : "";
+    const beforeEspUid = typeof before.espUid === "string" ?
+      before.espUid.trim() : "";
+    const espUid = afterEspUid || beforeEspUid;
 
     if (allowedChanged) {
-      const humanUsers = afterAllowed.filter((uid) => uid !== espUid);
+      const humanUsers = afterAllowed.filter(
+        (uid) => uid !== espUid && uid !== deviceId
+      );
       if (humanUsers.length === 0) {
         const cmdRef = rtdb.ref(`live/${deviceId}/cmd`);
         const cmdSnap = await cmdRef.get();
@@ -394,7 +403,11 @@ export const onDeviceUpdated = onDocumentUpdated(
           });
         }
         await removeDeviceRtdbNodes(deviceId);
-        await revokeAndDeleteDeviceAuthUsers([espUid, deviceId]);
+        await revokeAndDeleteDeviceAuthUsers([
+          afterEspUid,
+          beforeEspUid,
+          deviceId,
+        ]);
         // Keep devices/{deviceId} so total_on_seconds & lamp_wattage_w persist
         // across unpair/re-pair cycles.
         return;
@@ -458,7 +471,11 @@ export const onDeviceUpdated = onDocumentUpdated(
 );
 
 export const onDeviceDeleted = onDocumentDeleted(
-  "devices/{deviceId}",
+  {
+    document: "devices/{deviceId}",
+    database: "(default)",
+    region: RTDB_REGION,
+  },
   async (event) => {
     const deviceId = event.params.deviceId;
     const deleted = event.data?.data() ?? {};

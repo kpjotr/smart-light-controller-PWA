@@ -1162,7 +1162,25 @@ async function executeUnpair(deviceId) {
     updatePayload[`customNames.${currentUser.uid}`] = deleteField();
   }
 
+  const espUid = typeof device?.espUid === 'string' ? device.espUid.trim() : '';
+  const remainingHumans = Array.isArray(device?.allowedUsers)
+    ? device.allowedUsers.filter(
+      (uid) => uid !== currentUser.uid && uid !== espUid && uid !== deviceId
+    )
+    : [];
+
   try {
+    if (remainingHumans.length === 0) {
+      const cmdPayload = liveCmdById.has(deviceId)
+        ? { lamp: false, unpaired: true }
+        : buildFullCmdPayload(device, { lamp: false, unpaired: true });
+      try {
+        await update(ref(rtdb, `live/${deviceId}/cmd`), cmdPayload);
+      } catch (rtdbError) {
+        console.warn(`RTDB unpair notification failed (${deviceId}):`, rtdbError.message);
+      }
+    }
+
     await updateDoc(doc(db, 'devices', deviceId), updatePayload);
     closeSettingsModal();
     showBanner(`A(z) "${displayName}" eszköz leválasztva.`, 'success');
