@@ -343,10 +343,10 @@ export const onDeviceUpdated = onDocumentUpdated(
       cmdUpdates.lamp = after.remote_lamp_on;
     }
     if (
-      typeof after.restart_requested === "boolean" &&
-      after.restart_requested !== before.restart_requested
+      before.restart_requested !== true &&
+      after.restart_requested === true
     ) {
-      cmdUpdates.restart = after.restart_requested;
+      cmdUpdates.restart = true;
     }
     if (
       isIntInRange(after.threshold, 1, 100) &&
@@ -454,6 +454,38 @@ export const onDeviceWattageUpdated = onValueWritten(
 
     await deviceRef.update({
       lamp_wattage_w: wattage,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
+);
+
+export const onDeviceRestartAck = onValueWritten(
+  {
+    ref: "/live/{deviceId}/cmd/restart",
+    instance: RTDB_INSTANCE,
+    region: RTDB_REGION,
+  },
+  async (event) => {
+    if (
+      event.data.before.val() !== true ||
+      event.data.after.val() !== false
+    ) {
+      return;
+    }
+
+    const deviceId = event.params.deviceId;
+    const deviceRef = db.collection("devices").doc(deviceId);
+    const deviceSnap = await deviceRef.get();
+    if (!deviceSnap.exists) {
+      return;
+    }
+
+    if (deviceSnap.data()?.restart_requested !== true) {
+      return;
+    }
+
+    await deviceRef.update({
+      restart_requested: false,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
   }

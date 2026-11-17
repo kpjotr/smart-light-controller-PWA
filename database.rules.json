@@ -16,6 +16,7 @@
             ".validate": "newData.isBoolean()"
           },
           "restart": {
+            ".write": "auth != null && auth.token.role === 'device' && auth.token.deviceId === $deviceId && root.child('acl').child($deviceId).child(auth.uid).val() === true && newData.isBoolean() && newData.val() === false",
             ".validate": "newData.isBoolean()"
           },
           "thr": {
