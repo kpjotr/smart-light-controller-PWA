@@ -180,19 +180,16 @@
     </div>
   </dialog>
 
-  <!-- Restart Confirmation Modal -->
-  <dialog class="app-modal modal confirm-modal" id="restart-modal" aria-labelledby="restart-modal-title" aria-describedby="restart-modal-desc">
-    <div class="modal-header">
-      <h2 id="restart-modal-title">ESP32 újraindítása</h2>
-      <button type="button" class="btn btn-secondary icon-close-btn" id="restart-modal-close" aria-label="Bezárás">&times;</button>
+  <!-- Unified Confirmation Modal -->
+  <dialog class="app-modal modal confirm-modal" id="confirm-modal" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-desc">
+    <div class="confirm-modal-header">
+      <h2 id="confirm-modal-title">Megerősítés</h2>
     </div>
     <div class="confirm-modal-body">
-      <p class="muted" id="restart-modal-desc">
-        Biztosan újra szeretnéd indítani a kiválasztott ESP32 vezérlőt? Az újraindítás alatt az eszköz átmenetileg nem lesz elérhető.
-      </p>
+      <p class="muted" id="confirm-modal-desc"></p>
       <div class="modal-actions-grid">
-        <button type="button" class="btn btn-secondary" id="restart-cancel-btn">Mégse</button>
-        <button type="button" class="btn btn-warning" id="restart-confirm-btn">Újraindítás</button>
+        <button type="button" class="btn btn-secondary" id="confirm-cancel-btn">Mégse</button>
+        <button type="button" class="btn btn-warning" id="confirm-action-btn">Megerősítés</button>
       </div>
     </div>
   </dialog>

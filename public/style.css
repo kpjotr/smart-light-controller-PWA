@@ -168,6 +168,12 @@ select {
   overflow: hidden;
 }
 
+#auth-section {
+  height: 100%;
+  max-height: 100dvh;
+  overflow: hidden;
+}
+
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -175,6 +181,29 @@ select {
   padding: clamp(10px, 1.8vh, 16px) 16px;
   min-height: 0;
   overflow-y: auto;
+}
+
+.auth-card {
+  padding: clamp(12px, 2.2vh, 20px) clamp(14px, 3.5vw, 20px);
+  overflow: hidden;
+  max-height: 100%;
+}
+
+.auth-card h2 {
+  margin-bottom: clamp(4px, 0.9vh, 8px);
+}
+
+.auth-card > .muted {
+  margin-bottom: clamp(8px, 1.6vh, 14px);
+}
+
+.auth-card .field {
+  gap: clamp(3px, 0.7vh, 6px);
+  margin-bottom: clamp(8px, 1.5vh, 14px);
+}
+
+.auth-card .form-error {
+  margin-top: clamp(6px, 1.2vh, 10px);
 }
 
 .card h2,
@@ -483,10 +512,12 @@ button:focus-visible {
   user-select: none;
   width: 32px;
   height: 32px;
+  padding: 0;
   border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  line-height: 1;
   font-weight: 700;
   font-size: 0.85rem;
   flex-shrink: 0;
@@ -495,6 +526,12 @@ button:focus-visible {
   color: var(--text-muted);
   opacity: 0.55;
   transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+
+.auto-indicator svg {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 .auto-indicator.is-active {
@@ -619,8 +656,9 @@ dialog.confirm-modal {
   z-index: 100;
   width: calc(100vw - 24px);
   max-width: 420px;
-  height: auto;
-  max-height: calc(var(--app-h, 100dvh) - 12px);
+  height: fit-content;
+  max-height: calc(var(--app-h, 100dvh) - 32px);
+  padding: clamp(18px, 3vh, 24px);
 }
 
 dialog.help-modal {
@@ -663,13 +701,14 @@ dialog.settings-modal .modal-header {
 .status-pill {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   flex-shrink: 0;
-  padding: 3px 8px;
-  border-radius: 999px;
-  background: var(--surface-elevated);
-  border: 1px solid var(--border);
-  font-size: 0.76rem;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: 0.8rem;
   color: var(--text-muted);
 }
 
@@ -791,11 +830,23 @@ dialog.settings-modal .modal-header {
   gap: 10px;
 }
 
+.confirm-modal-header {
+  padding: 0 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.confirm-modal-header h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
 .confirm-modal-body {
-  padding: 14px;
+  padding: 14px 0 0;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
 }
 
 .confirm-modal-body .muted {

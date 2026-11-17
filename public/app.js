@@ -83,11 +83,11 @@ const els = {
   restartBtn: document.getElementById('restart-btn'),
   unpairBtn: document.getElementById('unpair-btn'),
   resetConsumptionBtn: document.getElementById('reset-consumption-btn'),
-  restartModal: document.getElementById('restart-modal'),
-  restartModalDesc: document.getElementById('restart-modal-desc'),
-  restartModalClose: document.getElementById('restart-modal-close'),
-  restartCancelBtn: document.getElementById('restart-cancel-btn'),
-  restartConfirmBtn: document.getElementById('restart-confirm-btn'),
+  confirmModal: document.getElementById('confirm-modal'),
+  confirmModalTitle: document.getElementById('confirm-modal-title'),
+  confirmModalDesc: document.getElementById('confirm-modal-desc'),
+  confirmCancelBtn: document.getElementById('confirm-cancel-btn'),
+  confirmActionBtn: document.getElementById('confirm-action-btn'),
   helpModal: document.getElementById('help-modal'),
   helpModalClose: document.getElementById('help-modal-close'),
 };
@@ -120,7 +120,8 @@ let pairingGraceTimer = null;
 let pairingFeedbackTimer = null;
 let statusTimer = null;
 let settingsStatusTimer = null;
-let isRestartSubmitting = false;
+let isConfirmSubmitting = false;
+let pendingConfirmHandler = null;
 let pairSubmitDefaultText = '';
 
 function isTextInputFocused() {
@@ -492,6 +493,25 @@ function createGearIconSvg() {
   return svg;
 }
 
+function createAutoIndicatorSvg() {
+  const svg = createSvgElement('svg', {
+    viewBox: '0 0 24 24',
+    'aria-hidden': 'true',
+  });
+  const text = createSvgElement('text', {
+    x: '12',
+    y: '12',
+    'text-anchor': 'middle',
+    'dominant-baseline': 'central',
+    fill: 'currentColor',
+    'font-size': '13.5',
+    'font-weight': '700',
+  });
+  text.textContent = 'A';
+  svg.appendChild(text);
+  return svg;
+}
+
 function getDeviceDisplayName(deviceOrId) {
   const device = typeof deviceOrId === 'string'
     ? (devicesById.get(deviceOrId) || { id: deviceOrId })
@@ -560,7 +580,7 @@ function renderDeviceList() {
     const autoIndicator = document.createElement('span');
     autoIndicator.className = `auto-indicator${isAutoActive ? ' is-active' : ''}`;
     autoIndicator.setAttribute('aria-hidden', 'true');
-    autoIndicator.textContent = 'A';
+    autoIndicator.appendChild(createAutoIndicatorSvg());
 
     const lampBtn = document.createElement('button');
     lampBtn.type = 'button';
@@ -611,7 +631,7 @@ function renderCurrentView() {
     els.pairingView.classList.add('hidden');
     els.deviceListView.classList.add('hidden');
     closeSettingsModal();
-    closeRestartModal();
+    closeConfirmModal();
     return;
   }
 
@@ -712,18 +732,46 @@ function closeSettingsModal() {
   closeDialogElement(els.settingsModal);
 }
 
+function openConfirmModal({
+  title,
+  description,
+  confirmText,
+  loadingText = 'Folyamatban...',
+  variantClass = 'btn-warning',
+  onConfirm,
+}) {
+  if (!onConfirm) return;
+  pendingConfirmHandler = { onConfirm, loadingText };
+  isConfirmSubmitting = false;
+  els.confirmCancelBtn.disabled = false;
+  els.confirmActionBtn.disabled = false;
+  els.confirmActionBtn.className = `btn ${variantClass}`;
+  els.confirmActionBtn.textContent = confirmText;
+  els.confirmModalTitle.textContent = title;
+  els.confirmModalDesc.textContent = description;
+  openDialogElement(els.confirmModal);
+  els.confirmCancelBtn.focus();
+}
+
+function closeConfirmModal() {
+  if (isConfirmSubmitting) return;
+  pendingConfirmHandler = null;
+  els.confirmCancelBtn.disabled = false;
+  closeDialogElement(els.confirmModal);
+}
+
 function openRestartModal() {
   const deviceId = uiState.settingsDeviceId;
   if (!deviceId || els.restartBtn.disabled) return;
   const displayName = getDeviceDisplayName(deviceId);
-  els.restartModalDesc.textContent =
-    `Biztosan újra szeretnéd indítani a(z) "${displayName}" ESP32 vezérlőt? Az újraindítás alatt az eszköz átmenetileg nem lesz elérhető.`;
-  openDialogElement(els.restartModal);
-  els.restartCancelBtn.focus();
-}
-
-function closeRestartModal() {
-  closeDialogElement(els.restartModal);
+  openConfirmModal({
+    title: 'ESP32 újraindítása',
+    description: `Biztosan újra szeretnéd indítani a(z) "${displayName}" ESP32 vezérlőt? Az újraindítás alatt az eszköz átmenetileg nem lesz elérhető.`,
+    confirmText: 'Újraindítás',
+    loadingText: 'Küldés...',
+    variantClass: 'btn-warning',
+    onConfirm: () => executeRestart(deviceId),
+  });
 }
 
 function openHelpModal() {
@@ -786,7 +834,8 @@ function subscribeToDevices() {
         if (devicesById.has(uiState.settingsDeviceId)) {
           populateSettingsModal(uiState.settingsDeviceId, false);
         } else {
-          closeRestartModal();
+          isConfirmSubmitting = false;
+          closeConfirmModal();
           closeSettingsModal();
         }
       }
@@ -1017,73 +1066,51 @@ async function handleSettingsSubmit(event) {
   });
 }
 
-async function handleRestartConfirm() {
-  const deviceId = uiState.settingsDeviceId;
-  if (!deviceId || isRestartSubmitting) return;
-  isRestartSubmitting = true;
-  els.restartCancelBtn.disabled = true;
-  els.restartModalClose.disabled = true;
-
-  await runWithButtonLock(els.restartConfirmBtn, 'Küldés...', async () => {
-    try {
-      const device = devicesById.get(deviceId);
-      const cmdPayload = liveCmdById.has(deviceId)
-        ? { restart: true }
-        : buildFullCmdPayload(device, { restart: true });
-      await Promise.all([
-        update(ref(rtdb, `live/${deviceId}/cmd`), cmdPayload),
-        updateDoc(doc(db, 'devices', deviceId), {
-          restart_requested: true,
-          updatedAt: serverTimestamp(),
-        }),
-      ]);
-      els.restartBtn.disabled = true;
-      els.restartBtn.textContent = 'Újraindítás...';
-      closeRestartModal();
-      const displayName = getDeviceDisplayName(deviceId);
-      setSettingsStatus('success', 'Újraindítási kérelem elküldve.', 5000);
-      showBanner(`Újraindítási kérelem elküldve: ${displayName}.`, 'success');
-    } catch (error) {
-      setSettingsStatus('error', `Az újraindítás sikertelen: ${error.message}`);
-      showBanner(`Az újraindítás sikertelen: ${error.message}`, 'error');
-    } finally {
-      isRestartSubmitting = false;
-      els.restartCancelBtn.disabled = false;
-      els.restartModalClose.disabled = false;
-    }
-  });
+async function executeRestart(deviceId) {
+  if (!deviceId) return;
+  try {
+    const device = devicesById.get(deviceId);
+    const cmdPayload = liveCmdById.has(deviceId)
+      ? { restart: true }
+      : buildFullCmdPayload(device, { restart: true });
+    await Promise.all([
+      update(ref(rtdb, `live/${deviceId}/cmd`), cmdPayload),
+      updateDoc(doc(db, 'devices', deviceId), {
+        restart_requested: true,
+        updatedAt: serverTimestamp(),
+      }),
+    ]);
+    els.restartBtn.disabled = true;
+    els.restartBtn.textContent = 'Újraindítás...';
+    const displayName = getDeviceDisplayName(deviceId);
+    setSettingsStatus('success', 'Újraindítási kérelem elküldve.', 5000);
+    showBanner(`Újraindítási kérelem elküldve: ${displayName}.`, 'success');
+  } catch (error) {
+    setSettingsStatus('error', `Az újraindítás sikertelen: ${error.message}`);
+    showBanner(`Az újraindítás sikertelen: ${error.message}`, 'error');
+  }
 }
 
-async function handleResetConsumption() {
-  const deviceId = uiState.settingsDeviceId;
+async function executeResetConsumption(deviceId) {
   if (!deviceId || !currentUser) return;
   const device = devicesById.get(deviceId);
   if (!device || getDeviceWattage(device) <= 0) return;
-
   const displayName = getDeviceDisplayName(device);
-  if (!window.confirm(`Biztosan törlöd a(z) "${displayName}" fogyasztási adatait (0.00 kWh)?`)) {
-    return;
+  try {
+    await updateDoc(doc(db, 'devices', deviceId), {
+      total_on_seconds: 0,
+      updatedAt: serverTimestamp(),
+    });
+    setSettingsStatus('success', `${displayName}: Fogyasztási adatok törölve.`, 4000);
+  } catch (error) {
+    setSettingsStatus('error', `A fogyasztási adatok törlése sikertelen: ${error.message}`);
   }
-
-  await runWithButtonLock(els.resetConsumptionBtn, 'Törlés...', async () => {
-    try {
-      await updateDoc(doc(db, 'devices', deviceId), {
-        total_on_seconds: 0,
-        updatedAt: serverTimestamp(),
-      });
-      setSettingsStatus('success', `${displayName}: Fogyasztási adatok törölve.`, 4000);
-    } catch (error) {
-      setSettingsStatus('error', `A fogyasztási adatok törlése sikertelen: ${error.message}`);
-    }
-  });
 }
 
-async function handleUnpair() {
-  const deviceId = uiState.settingsDeviceId;
+async function executeUnpair(deviceId) {
   if (!deviceId || !currentUser) return;
   const device = devicesById.get(deviceId);
   const displayName = getDeviceDisplayName(device || deviceId);
-  if (!window.confirm(`Biztosan leválasztod a(z) "${displayName}" eszközt a fiókodról?`)) return;
 
   const updatePayload = {
     allowedUsers: arrayRemove(currentUser.uid),
@@ -1095,14 +1122,61 @@ async function handleUnpair() {
     updatePayload[`customNames.${currentUser.uid}`] = deleteField();
   }
 
-  await runWithButtonLock(els.unpairBtn, 'Leválasztás...', async () => {
+  try {
+    await updateDoc(doc(db, 'devices', deviceId), updatePayload);
+    closeSettingsModal();
+    showBanner(`A(z) "${displayName}" eszköz leválasztva.`, 'success');
+  } catch (error) {
+    setSettingsStatus('error', `A leválasztás sikertelen: ${error.message}`);
+  }
+}
+
+async function handleConfirmAction() {
+  if (!pendingConfirmHandler || isConfirmSubmitting) return;
+  const { onConfirm, loadingText } = pendingConfirmHandler;
+  isConfirmSubmitting = true;
+  els.confirmCancelBtn.disabled = true;
+
+  await runWithButtonLock(els.confirmActionBtn, loadingText, async () => {
     try {
-      await updateDoc(doc(db, 'devices', deviceId), updatePayload);
-      closeSettingsModal();
-      showBanner(`A(z) "${displayName}" eszköz leválasztva.`, 'success');
-    } catch (error) {
-      setSettingsStatus('error', `A leválasztás sikertelen: ${error.message}`);
+      await onConfirm();
+    } finally {
+      isConfirmSubmitting = false;
+      els.confirmCancelBtn.disabled = false;
+      closeConfirmModal();
     }
+  });
+}
+
+function handleResetConsumption() {
+  const deviceId = uiState.settingsDeviceId;
+  if (!deviceId || !currentUser) return;
+  const device = devicesById.get(deviceId);
+  if (!device || getDeviceWattage(device) <= 0) return;
+
+  const displayName = getDeviceDisplayName(device);
+  openConfirmModal({
+    title: 'Fogyasztási adatok törlése',
+    description: `Biztosan törlöd a(z) "${displayName}" összesített fogyasztási adatait (0.00 kWh)?`,
+    confirmText: 'Törlés',
+    loadingText: 'Törlés...',
+    variantClass: 'btn-danger',
+    onConfirm: () => executeResetConsumption(deviceId),
+  });
+}
+
+function handleUnpair() {
+  const deviceId = uiState.settingsDeviceId;
+  if (!deviceId || !currentUser) return;
+  const device = devicesById.get(deviceId);
+  const displayName = getDeviceDisplayName(device || deviceId);
+  openConfirmModal({
+    title: 'Eszköz leválasztása',
+    description: `Biztosan leválasztod a(z) "${displayName}" eszközt a fiókodról?`,
+    confirmText: 'Leválasztás',
+    loadingText: 'Leválasztás...',
+    variantClass: 'btn-danger',
+    onConfirm: () => executeUnpair(deviceId),
   });
 }
 
@@ -1117,6 +1191,11 @@ const firebaseConfig = {
 
 function bindModalEvents() {
   els.settingsModalClose.addEventListener('click', closeSettingsModal);
+  els.settingsModal.addEventListener('cancel', (event) => {
+    if (els.confirmModal.open) {
+      event.preventDefault();
+    }
+  });
   els.settingsModal.addEventListener('close', () => {
     uiState.settingsDeviceId = null;
     dirtyParams.clear();
@@ -1128,17 +1207,21 @@ function bindModalEvents() {
   });
 
   els.restartBtn.addEventListener('click', openRestartModal);
-  els.restartModalClose.addEventListener('click', closeRestartModal);
-  els.restartCancelBtn.addEventListener('click', closeRestartModal);
-  els.restartConfirmBtn.addEventListener('click', handleRestartConfirm);
-  els.restartModal.addEventListener('cancel', (event) => {
-    if (isRestartSubmitting) {
+  els.confirmCancelBtn.addEventListener('click', closeConfirmModal);
+  els.confirmActionBtn.addEventListener('click', handleConfirmAction);
+  els.confirmModal.addEventListener('close', () => {
+    pendingConfirmHandler = null;
+    isConfirmSubmitting = false;
+    els.confirmCancelBtn.disabled = false;
+  });
+  els.confirmModal.addEventListener('cancel', (event) => {
+    if (isConfirmSubmitting) {
       event.preventDefault();
     }
   });
-  els.restartModal.addEventListener('click', (event) => {
-    if (event.target === els.restartModal && !isRestartSubmitting) {
-      closeRestartModal();
+  els.confirmModal.addEventListener('click', (event) => {
+    if (event.target === els.confirmModal && !isConfirmSubmitting) {
+      closeConfirmModal();
     }
   });
 
