@@ -129,6 +129,29 @@ async function ensureDeviceAuthUser(uid: string): Promise<void> {
 }
 
 /**
+ * Revokes refresh tokens and deletes Auth records for candidate device UIDs.
+ * @param {string[]} candidates Candidate device Auth UIDs.
+ * @return {Promise<void>} Resolves when all unique non-empty UIDs finish.
+ */
+async function revokeAndDeleteDeviceAuthUsers(
+  candidates: string[]
+): Promise<void> {
+  const uniqueUids = new Set<string>();
+  for (const candidate of candidates) {
+    const trimmed = candidate.trim();
+    if (trimmed.length > 0) {
+      uniqueUids.add(trimmed);
+    }
+  }
+  await Promise.all(
+    Array.from(uniqueUids).map(async (uid) => {
+      await safeRevokeRefreshTokens(uid);
+      await safeDeleteAuthUser(uid);
+    })
+  );
+}
+
+/**
  * Deletes live and acl RTDB subtrees for a device.
  * @param {string} deviceId Device identifier.
  * @return {Promise<void>} Resolves when both RTDB nodes are removed.
@@ -370,14 +393,8 @@ export const onDeviceUpdated = onDocumentUpdated(
             unpaired: true,
           });
         }
-        await Promise.all([
-          rtdb.ref(`acl/${deviceId}`).remove(),
-          rtdb.ref(`live/${deviceId}/state`).remove(),
-        ]);
-        if (espUid) {
-          await safeRevokeRefreshTokens(espUid);
-          await safeDeleteAuthUser(espUid);
-        }
+        await removeDeviceRtdbNodes(deviceId);
+        await revokeAndDeleteDeviceAuthUsers([espUid, deviceId]);
         // Keep devices/{deviceId} so total_on_seconds & lamp_wattage_w persist
         // across unpair/re-pair cycles.
         return;
@@ -448,10 +465,7 @@ export const onDeviceDeleted = onDocumentDeleted(
     const espUid = typeof deleted.espUid === "string" ?
       deleted.espUid.trim() : "";
 
-    if (espUid) {
-      await safeRevokeRefreshTokens(espUid);
-      await safeDeleteAuthUser(espUid);
-    }
+    await revokeAndDeleteDeviceAuthUsers([espUid, deviceId]);
     await removeDeviceRtdbNodes(deviceId);
   }
 );

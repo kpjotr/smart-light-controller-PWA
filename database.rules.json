@@ -9,14 +9,14 @@
     "live": {
       "$deviceId": {
         "cmd": {
-          ".read": "auth != null && ((auth.token.role === 'device' && auth.token.deviceId === $deviceId) || (auth.token.role != 'device' && root.child('acl').child($deviceId).child(auth.uid).val() === true))",
-          ".write": "auth != null && auth.token.role != 'device' && root.child('acl').child($deviceId).child(auth.uid).val() === true && newData.exists()",
+          ".read": "auth != null && ((auth.token.role === 'device' && auth.token.deviceId === $deviceId && root.child('acl/' + $deviceId).hasChildren()) || (auth.token.role != 'device' && root.child('acl/' + $deviceId + '/' + auth.uid).val() === true))",
+          ".write": "auth != null && auth.token.role != 'device' && root.child('acl/' + $deviceId + '/' + auth.uid).val() === true && newData.exists()",
           ".validate": "newData.hasChildren(['lamp', 'restart', 'thr', 'sens', 'dur', 'safe'])",
           "lamp": {
             ".validate": "newData.isBoolean()"
           },
           "restart": {
-            ".write": "auth != null && auth.token.role === 'device' && auth.token.deviceId === $deviceId && root.child('acl').child($deviceId).child(auth.uid).val() === true && newData.isBoolean() && newData.val() === false",
+            ".write": "auth != null && auth.token.role === 'device' && auth.token.deviceId === $deviceId && root.child('acl/' + $deviceId).hasChildren() && newData.isBoolean() && newData.val() === false",
             ".validate": "newData.isBoolean()"
           },
           "unpaired": {
@@ -45,8 +45,8 @@
           }
         },
         "state": {
-          ".read": "auth != null && root.child('acl').child($deviceId).child(auth.uid).val() === true",
-          ".write": "auth != null && auth.token.role === 'device' && auth.token.deviceId === $deviceId && root.child('acl').child($deviceId).child(auth.uid).val() === true && newData.exists()",
+          ".read": "auth != null && root.child('acl/' + $deviceId + '/' + auth.uid).val() === true",
+          ".write": "auth != null && auth.token.role === 'device' && auth.token.deviceId === $deviceId && root.child('acl/' + $deviceId).hasChildren() && newData.exists()",
           ".validate": "newData.hasChildren(['on', 'auto', 'lux', 'mot', 'ts', 'energy_delta_sec'])",
           "on": {
             ".validate": "newData.isBoolean()"
