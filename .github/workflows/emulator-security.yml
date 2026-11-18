@@ -29,6 +29,8 @@ jobs:
         run: npm --prefix functions ci --ignore-scripts
       - name: Lint Functions
         run: npm --prefix functions run lint
+      - name: Check emulator test syntax
+        run: npm --prefix functions run test:syntax
       - name: Build Functions
         run: npm --prefix functions run build
       - name: Run isolated emulator security tests
