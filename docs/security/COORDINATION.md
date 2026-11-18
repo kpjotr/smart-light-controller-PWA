@@ -13,3 +13,4 @@
 | SEC-CI-007 | Coder / Codex | 2026-11-18T16:00:00Z | .github/workflows/emulator-security.yml; docs/security/EMULATOR_CI* | COORDINATION_RESERVATION | RELEASED |
 | SEC-CI-008 | Coder / Codex | 2026-11-18T16:15:00Z | functions/src/index.ts; docs/security/CI_LINT_FIX* | COORDINATION_RESERVATION | RELEASED |
 | SEC-CI-009 | Coder / Codex | 2026-11-18T16:30:00Z | functions/.eslintrc.js; docs/security/CI_ESLINT_FIX* | COORDINATION_RESERVATION | RELEASED |
+| SEC-CI-010 | Coder / Codex | 2026-11-18T16:45:00Z | functions/tests/firestore.rules.spec.js; functions/tests/requestPairing.emulator.spec.js; docs/security/CI_TEST_LINT* | COORDINATION_RESERVATION | RESERVED |

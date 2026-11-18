@@ -16,8 +16,12 @@ const {
 } = require("firebase/firestore");
 
 const projectId = "demo-smart-light-audit";
-const rules = fs.readFileSync(path.resolve(__dirname, "../../firestore.rules"), "utf8");
+const rules = fs.readFileSync(
+  path.resolve(__dirname, "../../firestore.rules"),
+  "utf8"
+);
 
+/** Seeds a device document that rules tests may read and update. */
 async function seedDevice(env) {
   await env.withSecurityRulesDisabled(async (context) => {
     await setDoc(doc(context.firestore(), "devices/SmartLight-0001"), {
@@ -37,6 +41,7 @@ async function seedDevice(env) {
   });
 }
 
+/** Runs the Firestore Rules emulator assertions. */
 async function run() {
   const env = await initializeTestEnvironment({
     projectId,
@@ -48,9 +53,9 @@ async function run() {
 
     await seedDevice(env);
     await assertSucceeds(updateDoc(doc(alice, "devices/SmartLight-0001"), {
-      allowedUsers: arrayRemove("alice"),
+      "allowedUsers": arrayRemove("alice"),
       "customNames.alice": deleteField(),
-      updatedAt: serverTimestamp(),
+      "updatedAt": serverTimestamp(),
     }));
 
     await env.clearFirestore();
