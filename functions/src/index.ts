@@ -10,6 +10,7 @@ import {onValueUpdated, onValueWritten} from "firebase-functions/v2/database";
 import * as admin from "firebase-admin";
 import {getAuth} from "firebase-admin/auth";
 import {getDatabase, ServerValue} from "firebase-admin/database";
+import {FieldValue} from "firebase-admin/firestore";
 
 const RTDB_URL =
   "https://okospilacsvezerlo-default-rtdb.europe-west1.firebasedatabase.app";
@@ -314,14 +315,14 @@ async function handleRegisterDevice(
           lamp_on: false,
           remote_lamp_on: lamp,
           restart_requested: false,
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
         });
       } else {
         const updatePayload: Record<string, unknown> = {
           espUid,
           failedPairAttempts: 0,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
         };
 
         if (!Array.isArray(existing.allowedUsers)) {
@@ -487,7 +488,7 @@ export const requestPairing = onCall(
       tx.set(rateRef, {
         windowStartMs: now - windowStart < 60_000 ? windowStart : now,
         count: count + 1,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
       }, {merge: true});
       const device = deviceSnap.data() ?? {};
       const failed = typeof device.failedPairAttempts === "number" ?
@@ -496,7 +497,7 @@ export const requestPairing = onCall(
         return "failed-precondition";
       }
       if (!verifyPasskeyHash(passkey, device.passkeyHash)) {
-        tx.update(deviceRef, {failedPairAttempts: failed + 1, updatedAt: admin.firestore.FieldValue.serverTimestamp()});
+        tx.update(deviceRef, {failedPairAttempts: failed + 1, updatedAt: FieldValue.serverTimestamp()});
         return "permission-denied";
       }
       const names = device.customNames &&
@@ -509,10 +510,10 @@ export const requestPairing = onCall(
         delete names[requesterUid];
       }
       tx.update(deviceRef, {
-        allowedUsers: admin.firestore.FieldValue.arrayUnion(requesterUid),
+        allowedUsers: FieldValue.arrayUnion(requesterUid),
         customNames: names,
         failedPairAttempts: 0,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
       });
       return "ok";
     });
@@ -629,7 +630,7 @@ export const onPairingRequestCreated = onDocumentWritten(
         const nextAttempts = failedAttempts + 1;
         tx.update(deviceRef, {
           failedPairAttempts: nextAttempts,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
         });
         tx.update(pairingRef, {
           status: "rejected",
@@ -655,10 +656,10 @@ export const onPairingRequestCreated = onDocumentWritten(
       }
 
       tx.update(deviceRef, {
-        allowedUsers: admin.firestore.FieldValue.arrayUnion(requesterUid),
+        allowedUsers: FieldValue.arrayUnion(requesterUid),
         customNames,
         failedPairAttempts: 0,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
       });
       tx.delete(pairingRef);
     });
@@ -819,7 +820,7 @@ export const onEnergyDeltaUpdated = onValueUpdated(
     }
 
     await db.collection("devices").doc(deviceId).update({
-      total_on_seconds: admin.firestore.FieldValue.increment(delta),
+      total_on_seconds: FieldValue.increment(delta),
     });
     await event.data.after.ref.set(0);
   }
@@ -854,7 +855,7 @@ export const onDeviceWattageUpdated = onValueWritten(
 
     await deviceRef.update({
       lamp_wattage_w: wattage,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
     });
   }
 );
@@ -886,7 +887,7 @@ export const onDeviceRestartAck = onValueWritten(
 
     await deviceRef.update({
       restart_requested: false,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
     });
   }
 );
@@ -906,7 +907,7 @@ export const onDeviceP1OffUpdated = onValueUpdated(
     await Promise.all([
       db.collection("devices").doc(deviceId).update({
         remote_lamp_on: false,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
       }),
       rtdb.ref(`live/${deviceId}/cmd/lamp`).set(false),
       rtdb.ref(`live/${deviceId}/state/p1_off`).set(false),
