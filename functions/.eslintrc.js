@@ -25,6 +25,14 @@ module.exports = {
     "@typescript-eslint",
     "import",
   ],
+  overrides: [
+    {
+      files: ["tests/**/*.js"],
+      parserOptions: {
+        project: null,
+      },
+    },
+  ],
   rules: {
     "quotes": ["error", "double"],
     "import/no-unresolved": 0,

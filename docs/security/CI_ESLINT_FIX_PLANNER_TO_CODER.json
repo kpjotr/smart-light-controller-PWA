@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.1.0",
+  "framework_version": "1.1.0",
+  "handoff_type": "PLANNER_TO_CODER",
+  "task_id": "SEC-CI-009",
+  "scope": {"goal": "Correct ESLint parsing for JavaScript emulator tests so hosted CI can proceed to the security test stages.", "allowed_files_to_modify": ["functions/.eslintrc.js", "docs/security/COORDINATION.md", "docs/security/CI_ESLINT_FIX_*.json"], "concurrency_lock": "EXCLUSIVE"},
+  "security_invariants": [{"id": "LINT-003", "rule": "TypeScript source remains type-aware linted using the configured TypeScript projects."}, {"id": "LINT-004", "rule": "JavaScript emulator tests must be linted without claiming they belong to a TypeScript project."}, {"id": "LINT-005", "rule": "No test behavior, secrets, deploy configuration, or cloud access may change."}],
+  "freshness": {"framework_document_version_and_review_date": "NOT_VERIFIED: framework source files are not present in this checkout.", "official_sources_reverified": "NOT_APPLICABLE: ESLint parser configuration repair based on the hosted CI error evidence.", "project_versions_checked": "ESLint 8.57.1 and @typescript-eslint parser configuration checked 2026-11-18."},
+  "prohibited_actions": ["No deploy", "No FireFlow", "No secret access", "No tag", "No merge to main"]
+}
