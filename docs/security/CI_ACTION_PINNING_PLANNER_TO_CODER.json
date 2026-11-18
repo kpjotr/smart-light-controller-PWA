@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.1.0",
+  "framework_version": "1.1.0",
+  "handoff_type": "PLANNER_TO_CODER",
+  "task_id": "SEC-CI-012",
+  "scope": {"goal": "Pin every third-party GitHub Action used by the emulator security workflow to the exact immutable commit executed successfully by hosted CI.", "allowed_files_to_modify": [".github/workflows/emulator-security.yml", "docs/security/COORDINATION.md", "docs/security/CI_ACTION_PINNING_*.json"], "concurrency_lock": "EXCLUSIVE"},
+  "security_invariants": [{"id": "CI-007", "rule": "Actions checkout, setup-node, and setup-java must use full immutable commit SHAs."}, {"id": "CI-008", "rule": "The pin must match the successful hosted run's resolved action commit."}, {"id": "CI-009", "rule": "Workflow permissions, test commands, and runtime versions must not change."}],
+  "freshness": {"framework_document_version_and_review_date": "NOT_VERIFIED: framework source files are not present in this checkout.", "official_sources_reverified": "Hosted CI run 44388802501 action resolution log checked 2026-11-18.", "project_versions_checked": "Node 22, Java 21, Firebase CLI 15.36.0, and successful hosted emulator CI checked 2026-11-18."},
+  "prohibited_actions": ["No deploy", "No FireFlow", "No secret access", "No tag", "No merge to main"]
+}
