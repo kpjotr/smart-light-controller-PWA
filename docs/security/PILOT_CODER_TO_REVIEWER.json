@@ -7,7 +7,9 @@
   "modified_files": [
     "AGENTS.md",
     "SECURITY_PROFILE.md",
-    "docs/security/COORDINATION.md"
+    "docs/security/COORDINATION.md",
+    "docs/security/PILOT_REMEDIATION_PLANNER_TO_CODER.json",
+    "docs/security/PILOT_CODER_TO_REVIEWER.json"
   ],
   "lock_released": true,
   "verification_evidence": {
