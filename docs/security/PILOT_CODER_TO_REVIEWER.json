@@ -1,0 +1,47 @@
+{
+  "schema_version": "1.1.0",
+  "framework_version": "1.1.0",
+  "handoff_type": "CODER_TO_REVIEWER",
+  "task_id": "SEC-PILOT-002",
+  "commit_or_change_id": "e16c11d5fadbd49f908b7324dcc2328cdc28999b..204390c891421424be45aba988244833ad3c1248",
+  "modified_files": [
+    "AGENTS.md",
+    "SECURITY_PROFILE.md",
+    "docs/security/COORDINATION.md"
+  ],
+  "lock_released": true,
+  "verification_evidence": {
+    "executed_tests": [
+      {
+        "suite": "Pilot workflow documentation inspection",
+        "command": "GitHub connector: compare codex/security-workflow-pilot against main; inspect updated policy and profile",
+        "result": "PASS",
+        "passed_count": 3,
+        "failed_count": 0
+      }
+    ],
+    "not_applicable_or_deferred_tests": [
+      {
+        "test_ref": "JSON Schema validator run",
+        "status": "DEFERRED",
+        "justification": "Independent Reviewer must validate the completed Coder-to-Reviewer contract and corrections.",
+        "target_environment": "Reviewer workspace"
+      },
+      {
+        "test_ref": "Application test suite",
+        "status": "NOT_APPLICABLE",
+        "justification": "This task changes workflow documentation only; no application code, dependencies, rules, or functions changed.",
+        "target_environment": "N/A"
+      }
+    ]
+  },
+  "known_issues_and_open_items": [
+    "A new independent Reviewer must validate SEC-PILOT-002 before the pilot is accepted.",
+    "The provisional L2 tier remains pending owner confirmation."
+  ],
+  "residual_risks": [
+    "This documentation pilot does not assess application security or production Firebase configuration."
+  ],
+  "requested_review_mode": "SEPARATE_AGENT_INSTANCE",
+  "proposed_status": "CONDITIONAL_PASS"
+}
