@@ -684,14 +684,13 @@ function renderCurrentView() {
   els.userStatusEmail.textContent = `Bejelentkezve: ${currentUser.email || ''}`;
   els.authSection.classList.add('hidden');
 
-  const hasDevices = devicesById.size > 0;
-  if (!hasDevices || uiState.showPairingView) {
+  if (uiState.showPairingView) {
     // State 2: Pairing View
     els.pairingView.classList.remove('hidden');
     els.deviceListView.classList.add('hidden');
-    els.backToDevicesBtn.classList.toggle('hidden', !hasDevices);
+    els.backToDevicesBtn.classList.remove('hidden');
   } else {
-    // State 3: Device List View
+    // State 3: Device List View (also shown for 0-device empty state)
     els.pairingView.classList.add('hidden');
     els.deviceListView.classList.remove('hidden');
     renderDeviceList();
@@ -1173,10 +1172,9 @@ async function executeResetConsumption(deviceId) {
       total_on_seconds: 0,
       updatedAt: serverTimestamp(),
     });
-    setSettingsStatus('success', `${displayName}: Fogyasztási adatok törölve.`, 4000);
-    showBanner(`${displayName}: Fogyasztási adatok törölve.`, 'success');
+    showBanner(`${displayName}: A fogyasztási adatok sikeresen törölve.`, 'success');
   } catch (error) {
-    setSettingsStatus('error', `A fogyasztási adatok törlése sikertelen: ${error.message}`);
+    showBanner(`A fogyasztási adatok törlése sikertelen: ${error.message}`, 'error');
   }
 }
 
@@ -1215,7 +1213,8 @@ async function executeUnpair(deviceId) {
     }
 
     await updateDoc(doc(db, 'devices', deviceId), updatePayload);
-    showBanner(`A(z) "${displayName}" eszköz leválasztva.`, 'success');
+    uiState.showPairingView = false;
+    showBanner(`A(z) "${displayName}" eszköz sikeresen leválasztva.`, 'success');
   } catch (error) {
     showBanner(`A leválasztás sikertelen: ${error.message}`, 'error');
   }
@@ -1261,6 +1260,7 @@ function handleResetConsumption() {
     confirmText: 'Törlés',
     loadingText: 'Törlés...',
     variantClass: 'btn-danger',
+    closeSettingsOnConfirm: true,
     onConfirm: () => executeResetConsumption(deviceId),
   });
 }
