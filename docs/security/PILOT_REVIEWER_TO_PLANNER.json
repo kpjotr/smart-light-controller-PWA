@@ -1,0 +1,35 @@
+{
+  "schema_version": "1.1.0",
+  "framework_version": "1.1.0",
+  "handoff_type": "REVIEWER_TO_PLANNER",
+  "task_id": "SEC-PILOT-002",
+  "reviewed_commit_or_diff_id": "87c37da1e0e2de31235e742b1494f6b9350780f2",
+  "inspected_files": [
+    "AGENTS.md",
+    "SECURITY_PROFILE.md",
+    "docs/security/COORDINATION.md",
+    "docs/security/PILOT_HANDOFF.json",
+    "docs/security/PILOT_REMEDIATION_PLANNER_TO_CODER.json",
+    "docs/security/PILOT_CODER_TO_REVIEWER.json"
+  ],
+  "independently_executed_tests": [
+    {
+      "suite": "Handoff structural validation",
+      "command": "Independent Reviewer: JSON parse and v1.1.0 schema-shape validation of Planner-to-Coder and Coder-to-Reviewer contracts",
+      "result": "PASS",
+      "passed_count": 2,
+      "failed_count": 0
+    },
+    {
+      "suite": "Change-scope inspection",
+      "command": "Independent Reviewer: compare codex/security-workflow-pilot against main",
+      "result": "PASS",
+      "passed_count": 1,
+      "failed_count": 0
+    }
+  ],
+  "findings": [],
+  "rework_tasks": [],
+  "review_independence": "SEPARATE_AGENT_INSTANCE",
+  "final_status": "PASS"
+}
