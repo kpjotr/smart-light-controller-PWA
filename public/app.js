@@ -468,10 +468,8 @@ function scheduleRtdbListenerRecovery(deviceId) {
   const delayMs = RTDB_RETRY_DELAYS_MS[Math.min(attempt, RTDB_RETRY_DELAYS_MS.length - 1)];
   rtdbRetryCountById.set(deviceId, attempt + 1);
 
-  const timerId = setTimeout(async () => {
+  const timerId = setTimeout(() => {
     rtdbRetryTimersById.delete(deviceId);
-    if (!currentUser || !devicesById.has(deviceId)) return;
-    await refreshCurrentUserToken();
     if (!currentUser || !devicesById.has(deviceId)) return;
     attachDeviceRtdbListeners(deviceId);
   }, delayMs);
@@ -1310,6 +1308,7 @@ async function executeUnpair(deviceId) {
 
   const updatePayload = {
     allowedUsers: arrayRemove(currentUser.uid),
+    updatedAt: serverTimestamp(),
   };
   if (
     device?.customNames &&

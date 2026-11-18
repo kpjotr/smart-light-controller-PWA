@@ -74,15 +74,10 @@ service cloud.firestore {
     function isValidSelfUnpair() {
       let data = request.resource.data;
       let prev = resource.data;
-
       return prev.allowedUsers is list
-        && data.diff(prev).affectedKeys().hasOnly(['allowedUsers', 'customNames'])
-        && (!('espUid' in prev) || ('espUid' in data && data.espUid == prev.espUid))
+        && data.diff(prev).affectedKeys().hasOnly(['allowedUsers', 'customNames', 'updatedAt'])
         && data.allowedUsers is list
-        && !(request.auth.uid in data.allowedUsers)
-        && data.allowedUsers.size() == prev.allowedUsers.size() - 1
-        && prev.allowedUsers.hasAll(data.allowedUsers)
-        && isValidCustomNamesUpdate();
+        && !(request.auth.uid in data.allowedUsers);
     }
 
     match /pairing_requests/{deviceId} {
