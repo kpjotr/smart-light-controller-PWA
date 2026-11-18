@@ -3,7 +3,7 @@
   "framework_version": "1.1.0",
   "handoff_type": "CODER_TO_REVIEWER",
   "task_id": "SEC-PAIR-004",
-  "commit_or_change_id": "PENDING_COMMIT",
+  "commit_or_change_id": "de8ded8",
   "modified_files": ["functions/src/index.ts", "docs/security/COORDINATION.md", "docs/security/PAIRING_FIELDVALUE_PLANNER_TO_CODER.json", "docs/security/PAIRING_FIELDVALUE_CODER_TO_REVIEWER.json"],
   "lock_released": true,
   "verification_evidence": {"executed_tests": [{"suite": "Static FieldValue migration", "command": "rg 'admin\\.firestore\\.FieldValue' functions/src/index.ts", "result": "PASS", "evidence": "No legacy namespace FieldValue references remain; all 14 call sites use the direct Firestore import."}, {"suite": "Whitespace check", "command": "git diff --check", "result": "PASS"}], "deferred_tests": [{"suite": "requestPairing emulator suite", "status": "PENDING", "justification": "Requires the corrected commit in the user's running emulator workspace."}]},
