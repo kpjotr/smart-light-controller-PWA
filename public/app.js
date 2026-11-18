@@ -768,10 +768,18 @@ function openSettingsModal(deviceId) {
   openDialogElement(els.settingsModal);
 }
 
+function blurIfInside(containerEl) {
+  const active = document.activeElement;
+  if (active instanceof HTMLElement && containerEl && containerEl.contains(active)) {
+    active.blur();
+  }
+}
+
 function closeSettingsModal() {
   uiState.settingsDeviceId = null;
   dirtyParams.clear();
   setSettingsStatus('hidden', '');
+  blurIfInside(els.settingsModal);
   closeDialogElement(els.settingsModal);
 }
 
@@ -781,10 +789,11 @@ function openConfirmModal({
   confirmText,
   loadingText = 'Folyamatban...',
   variantClass = 'btn-warning',
+  closeSettingsOnConfirm = false,
   onConfirm,
 }) {
   if (!onConfirm) return;
-  pendingConfirmHandler = { onConfirm, loadingText };
+  pendingConfirmHandler = { onConfirm, loadingText, closeSettingsOnConfirm };
   isConfirmSubmitting = false;
   els.confirmCancelBtn.disabled = false;
   els.confirmActionBtn.disabled = false;
@@ -800,6 +809,7 @@ function closeConfirmModal() {
   if (isConfirmSubmitting) return;
   pendingConfirmHandler = null;
   els.confirmCancelBtn.disabled = false;
+  blurIfInside(els.confirmModal);
   closeDialogElement(els.confirmModal);
 }
 
@@ -813,6 +823,7 @@ function openRestartModal() {
     confirmText: 'Újraindítás',
     loadingText: 'Küldés...',
     variantClass: 'btn-warning',
+    closeSettingsOnConfirm: true,
     onConfirm: () => executeRestart(deviceId),
   });
 }
@@ -1146,10 +1157,8 @@ async function executeRestart(deviceId) {
     els.restartBtn.disabled = true;
     els.restartBtn.textContent = 'Újraindítás...';
     const displayName = getDeviceDisplayName(deviceId);
-    setSettingsStatus('success', 'Újraindítási kérelem elküldve.', 5000);
     showBanner(`Újraindítási kérelem elküldve: ${displayName}.`, 'success');
   } catch (error) {
-    setSettingsStatus('error', `Az újraindítás sikertelen: ${error.message}`);
     showBanner(`Az újraindítás sikertelen: ${error.message}`, 'error');
   }
 }
@@ -1206,16 +1215,25 @@ async function executeUnpair(deviceId) {
     }
 
     await updateDoc(doc(db, 'devices', deviceId), updatePayload);
-    closeSettingsModal();
     showBanner(`A(z) "${displayName}" eszköz leválasztva.`, 'success');
   } catch (error) {
-    setSettingsStatus('error', `A leválasztás sikertelen: ${error.message}`);
+    showBanner(`A leválasztás sikertelen: ${error.message}`, 'error');
   }
 }
 
 async function handleConfirmAction() {
   if (!pendingConfirmHandler || isConfirmSubmitting) return;
-  const { onConfirm, loadingText } = pendingConfirmHandler;
+  const { onConfirm, loadingText, closeSettingsOnConfirm } = pendingConfirmHandler;
+
+  if (closeSettingsOnConfirm) {
+    pendingConfirmHandler = null;
+    isConfirmSubmitting = false;
+    closeConfirmModal();
+    closeSettingsModal();
+    await onConfirm();
+    return;
+  }
+
   isConfirmSubmitting = true;
   els.confirmCancelBtn.disabled = true;
 
@@ -1258,6 +1276,7 @@ function handleUnpair() {
     confirmText: 'Leválasztás',
     loadingText: 'Leválasztás...',
     variantClass: 'btn-danger',
+    closeSettingsOnConfirm: true,
     onConfirm: () => executeUnpair(deviceId),
   });
 }
