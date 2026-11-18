@@ -1,0 +1,77 @@
+{
+  "schema_version": "1.1.0",
+  "framework_version": "1.1.0",
+  "handoff_type": "PLANNER_TO_CODER",
+  "task_id": "SEC-PILOT-002",
+  "project_context": {
+    "tier": "L2",
+    "onboarding_model": "A"
+  },
+  "scope": {
+    "goal": "Address independent-review findings for the documentation-only security-workflow pilot.",
+    "affected_components": [
+      "repository security workflow",
+      "agent coordination",
+      "freshness evidence"
+    ],
+    "allowed_files_to_modify": [
+      "AGENTS.md",
+      "SECURITY_PROFILE.md",
+      "docs/security/COORDINATION.md",
+      "docs/security/PILOT_REMEDIATION_PLANNER_TO_CODER.json",
+      "docs/security/PILOT_CODER_TO_REVIEWER.json"
+    ],
+    "concurrency_lock": "EXCLUSIVE",
+    "lock_acquisition_mode": "COORDINATION_RESERVATION"
+  },
+  "required_security_modules": [
+    {
+      "id": "01_SECURITY_CORE.md",
+      "module_version": "1.1.0"
+    },
+    {
+      "id": "08_AI_AGENT_CODING_SECURITY.md",
+      "module_version": "1.1.0"
+    },
+    {
+      "id": "09_SECURITY_TESTING_THREAT_MODELING.md",
+      "module_version": "1.1.0"
+    }
+  ],
+  "security_invariants": [
+    {
+      "id": "INV-001",
+      "requirement_id": "CORE-HANDOFF-001",
+      "rule": "Every implementation task must have a same-task Planner-to-Coder, Coder-to-Reviewer, and Reviewer-to-Planner handoff chain."
+    },
+    {
+      "id": "INV-002",
+      "requirement_id": "CORE-CONC-001",
+      "rule": "Record and release an exclusive coordination reservation before and after edits."
+    },
+    {
+      "id": "INV-003",
+      "requirement_id": "CORE-FRESH-001",
+      "rule": "Record framework, source, and project freshness evidence without inventing verification dates."
+    }
+  ],
+  "authorization_expectations": [
+    "Only workflow documentation may change.",
+    "No application, Firebase, dependency, cloud, deploy, FireFlow, tag, merge, or secret action is authorized."
+  ],
+  "required_tests": {
+    "positive": [
+      "Validate the Planner-to-Coder and Coder-to-Reviewer JSON contracts against the framework schema.",
+      "Confirm all modified workflow files are listed in the Coder-to-Reviewer contract."
+    ],
+    "negative": [
+      "Confirm no application or deployment file is changed.",
+      "Confirm a Reviewer remains independent of the Coder."
+    ]
+  },
+  "prohibited_actions": [
+    "No deployment or FireFlow execution.",
+    "No application-code, configuration, Rules, Functions, or dependency change.",
+    "No secret retrieval or disclosure."
+  ]
+}

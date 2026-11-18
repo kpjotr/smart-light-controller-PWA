@@ -1,0 +1,109 @@
+{
+  "schema_version": "1.1.0",
+  "framework_version": "1.1.0",
+  "handoff_type": "PLANNER_TO_CODER",
+  "task_id": "SEC-PILOT-001",
+  "project_context": {
+    "tier": "L2",
+    "onboarding_model": "A"
+  },
+  "scope": {
+    "goal": "Establish the repository security-workflow baseline without changing application behavior.",
+    "affected_components": [
+      "repository security workflow",
+      "agent coordination",
+      "release governance"
+    ],
+    "allowed_files_to_modify": [
+      "AGENTS.md",
+      "SECURITY_PROFILE.md",
+      "docs/security/PILOT_HANDOFF.json"
+    ],
+    "concurrency_lock": "EXCLUSIVE",
+    "lock_acquisition_mode": "COORDINATION_RESERVATION"
+  },
+  "required_security_modules": [
+    {
+      "id": "01_SECURITY_CORE.md",
+      "module_version": "1.1.0"
+    },
+    {
+      "id": "08_AI_AGENT_CODING_SECURITY.md",
+      "module_version": "1.1.0"
+    },
+    {
+      "id": "02_FIREBASE_SECURITY.md",
+      "module_version": "1.1.0"
+    },
+    {
+      "id": "03_FRONTEND_SECURITY.md",
+      "module_version": "1.1.0"
+    },
+    {
+      "id": "04_IDENTITY_ACCESS_SECURITY.md",
+      "module_version": "1.1.0"
+    },
+    {
+      "id": "05_API_INTEGRATION_SECURITY.md",
+      "module_version": "1.1.0"
+    },
+    {
+      "id": "06_DEVSECOPS_SUPPLY_CHAIN.md",
+      "module_version": "1.1.0"
+    },
+    {
+      "id": "07_DATA_PROTECTION_PRIVACY.md",
+      "module_version": "1.1.0"
+    },
+    {
+      "id": "09_SECURITY_TESTING_THREAT_MODELING.md",
+      "module_version": "1.1.0"
+    },
+    {
+      "id": "10_SOURCE_REGISTER.md",
+      "module_version": "1.1.0"
+    }
+  ],
+  "security_invariants": [
+    {
+      "id": "INV-001",
+      "requirement_id": "AGENT-TOOL-001",
+      "rule": "Default to read-only work; obtain explicit human approval before any repository, cloud, deployment, or secret-access mutation."
+    },
+    {
+      "id": "INV-002",
+      "requirement_id": "CORE-REV-001",
+      "rule": "The Reviewer must be independent of the Coder for every implementation review."
+    },
+    {
+      "id": "INV-003",
+      "requirement_id": "CORE-HANDOFF-001",
+      "rule": "Record Planner-to-Coder, Coder-to-Reviewer, and Reviewer-to-Planner contracts for every implementation task."
+    },
+    {
+      "id": "INV-004",
+      "requirement_id": "CORE-PRIN-008",
+      "rule": "Do not make a security claim without traceable code, configuration, test, review, or approved-risk evidence."
+    }
+  ],
+  "authorization_expectations": [
+    "Human approval is required before code or configuration changes.",
+    "The user alone runs FireFlow locally after an approved release gate.",
+    "No agent may read, print, or commit credentials, tokens, private keys, .env values, or Secret Manager values."
+  ],
+  "required_tests": {
+    "positive": [
+      "Verify that the three declared workflow files exist on the pilot branch.",
+      "Verify that a future Planner-to-Coder handoff validates against the framework schema."
+    ],
+    "negative": [
+      "Verify that the workflow does not authorize deploy, FireFlow, push, merge, cloud changes, or secret access without explicit human approval.",
+      "Verify that a self-review is rejected for non-L1 implementation work."
+    ]
+  },
+  "prohibited_actions": [
+    "No application-code, Firebase Rules, Cloud Function, dependency, or deployment modification in this pilot.",
+    "No FireFlow execution, Firebase deployment, tag, merge, or production release.",
+    "No secret retrieval, disclosure, or repository commit."
+  ]
+}
