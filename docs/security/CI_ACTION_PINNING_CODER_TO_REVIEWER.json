@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.1.0",
+  "framework_version": "1.1.0",
+  "handoff_type": "CODER_TO_REVIEWER",
+  "task_id": "SEC-CI-012",
+  "commit_or_change_id": "cd54882",
+  "modified_files": [".github/workflows/emulator-security.yml", "docs/security/COORDINATION.md", "docs/security/CI_ACTION_PINNING_PLANNER_TO_CODER.json", "docs/security/CI_ACTION_PINNING_CODER_TO_REVIEWER.json"],
+  "change_summary": "Replaced moving major-version action references with the full action commits resolved in successful hosted CI.",
+  "verification_evidence": {"executed": [{"check": "Workflow has all three full action SHA pins", "result": "PASS"}, {"check": "Workflow preserves read-only permission and all test stages", "result": "PASS"}, {"check": "Git whitespace validation", "result": "PASS"}], "deferred": [{"check": "Hosted CI with pinned actions", "status": "PENDING_PUSH", "justification": "The workflow must run once with the immutable references before the P2 finding closes."}]},
+  "lock_released": true,
+  "requested_review_mode": "SEPARATE_AGENT_INSTANCE",
+  "proposed_status": "CONDITIONAL_PASS"
+}
