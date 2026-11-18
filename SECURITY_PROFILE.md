@@ -8,6 +8,11 @@
 **Framework freshness:** package review date 2026-11-03; next framework audit due 2027-02-01.
 **Handoff schema:** handoff_contracts.schema.json v1.1.0 verified available in the framework repository.
 
+## 0. Freshness evidence — pilot
+- **Framework document:** v1.1.0 package and stated review/audit dates checked on 2026-11-18.
+- **Official sources:** NOT_VERIFIED for this documentation-only pilot; re-verify only sources affected by the next implementation or release task.
+- **Project freshness:** NOT_VERIFIED for this documentation-only pilot; the next implementation/release task must record actual dependency, runtime, Rules and configuration versions.
+
 ## 1. Scope and architecture
 - Browser PWA (vanilla HTML/CSS/JavaScript).
 - Firebase Authentication, Cloud Firestore, Realtime Database, Cloud Functions v2 and Firebase Hosting.
