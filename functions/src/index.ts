@@ -1,5 +1,10 @@
 import * as crypto from "crypto";
-import {onCall, onRequest, HttpsError, Request} from "firebase-functions/v2/https";
+import {
+  onCall,
+  onRequest,
+  HttpsError,
+  Request,
+} from "firebase-functions/v2/https";
 import {Response} from "express";
 import {
   onDocumentUpdated,
@@ -243,8 +248,10 @@ async function handleRegisterDevice(
   // Pre-Shared Key ellenőrzése
   const suppliedToken = req.header("X-Esp-Auth-Token");
   const expectedToken = ESP_AUTH_TOKEN.value();
-  const suppliedTokenBytes = suppliedToken ? Buffer.from(suppliedToken, "utf8") : null;
-  const expectedTokenBytes = expectedToken ? Buffer.from(expectedToken, "utf8") : null;
+  const suppliedTokenBytes = suppliedToken ?
+    Buffer.from(suppliedToken, "utf8") : null;
+  const expectedTokenBytes = expectedToken ?
+    Buffer.from(expectedToken, "utf8") : null;
   if (
     !suppliedTokenBytes ||
     !expectedTokenBytes ||
@@ -461,8 +468,14 @@ async function handleRegisterDevice(
   res.status(200).json({ok: true, deviceId, customToken});
 }
 
-export const verifyPairing = onRequest({secrets: [ESP_AUTH_TOKEN]}, handleRegisterDevice);
-export const registerDevice = onRequest({secrets: [ESP_AUTH_TOKEN]}, handleRegisterDevice);
+export const verifyPairing = onRequest(
+  {secrets: [ESP_AUTH_TOKEN]},
+  handleRegisterDevice
+);
+export const registerDevice = onRequest(
+  {secrets: [ESP_AUTH_TOKEN]},
+  handleRegisterDevice
+);
 
 export const requestPairing = onCall(
   {region: RTDB_REGION},
@@ -486,16 +499,22 @@ export const requestPairing = onCall(
       throw new HttpsError("invalid-argument", "Invalid pairing request.");
     }
     const deviceRef = db.collection("devices").doc(deviceId);
-    const rateRef = db.collection("_pairingRateLimits").doc(`${requesterUid}_${deviceId}`);
+    const rateRef = db.collection("_pairingRateLimits")
+      .doc(`${requesterUid}_${deviceId}`);
     const outcome = await db.runTransaction(async (tx) => {
-      const [deviceSnap, rateSnap] = await Promise.all([tx.get(deviceRef), tx.get(rateRef)]);
+      const [deviceSnap, rateSnap] = await Promise.all([
+        tx.get(deviceRef),
+        tx.get(rateRef),
+      ]);
       if (!deviceSnap.exists) {
         return "not-found";
       }
       const now = Date.now();
       const rate = rateSnap.data() ?? {};
-      const windowStart = typeof rate.windowStartMs === "number" ? rate.windowStartMs : now;
-      const count = now - windowStart < 60_000 && typeof rate.count === "number" ?
+      const windowStart = typeof rate.windowStartMs === "number" ?
+        rate.windowStartMs : now;
+      const count = now - windowStart < 60_000 &&
+        typeof rate.count === "number" ?
         rate.count : 0;
       if (count >= 5) {
         return "resource-exhausted";
@@ -512,7 +531,10 @@ export const requestPairing = onCall(
         return "failed-precondition";
       }
       if (!verifyPasskeyHash(passkey, device.passkeyHash)) {
-        tx.update(deviceRef, {failedPairAttempts: failed + 1, updatedAt: FieldValue.serverTimestamp()});
+        tx.update(deviceRef, {
+          failedPairAttempts: failed + 1,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
         return "permission-denied";
       }
       const names = device.customNames &&
