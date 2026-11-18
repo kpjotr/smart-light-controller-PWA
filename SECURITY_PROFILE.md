@@ -6,6 +6,7 @@
 **Status:** Pilot baseline — not a compliance certification
 **Created:** 2026-11-18
 **Framework freshness:** package review date 2026-11-03; next framework audit due 2027-02-01.
+**Handoff schema:** handoff_contracts.schema.json v1.1.0 verified available in the framework repository.
 
 ## 1. Scope and architecture
 - Browser PWA (vanilla HTML/CSS/JavaScript).
@@ -48,7 +49,7 @@
 3. Add independent authorization tests for each Admin SDK-triggered state transition.
 4. Inventory personal data, purpose, retention, processors, and deletion/backup behavior.
 5. Confirm App Check, API-key restrictions, IAM, budgets, backups, CSP/security headers, dependency scan and secret scan.
-6. Restore the framework's missing handoff_contracts.schema.json before machine-validating handoffs.
+6. Validate every implementation handoff against the framework JSON Schema.
 
 ## 6. Release constraint
 No pilot result authorizes deployment. FireFlow v1.3.0 remains unchanged and is run locally by the user only after explicit approval and a completed release gate.
