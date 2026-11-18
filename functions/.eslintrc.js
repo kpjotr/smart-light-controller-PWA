@@ -31,6 +31,9 @@ module.exports = {
       parserOptions: {
         project: null,
       },
+      rules: {
+        "@typescript-eslint/no-require-imports": "off",
+      },
     },
   ],
   rules: {
