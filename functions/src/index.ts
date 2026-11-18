@@ -243,13 +243,15 @@ async function handleRegisterDevice(
   // Pre-Shared Key ellenőrzése
   const suppliedToken = req.header("X-Esp-Auth-Token");
   const expectedToken = ESP_AUTH_TOKEN.value();
+  const suppliedTokenBytes = suppliedToken ? Buffer.from(suppliedToken, "utf8") : null;
+  const expectedTokenBytes = expectedToken ? Buffer.from(expectedToken, "utf8") : null;
   if (
-    !suppliedToken ||
-    !expectedToken ||
-    suppliedToken.length !== expectedToken.length ||
+    !suppliedTokenBytes ||
+    !expectedTokenBytes ||
+    suppliedTokenBytes.length !== expectedTokenBytes.length ||
     !crypto.timingSafeEqual(
-      Buffer.from(suppliedToken, "utf8"),
-      Buffer.from(expectedToken, "utf8")
+      suppliedTokenBytes,
+      expectedTokenBytes
     )
   ) {
     res.status(401).send("Unauthorized");
