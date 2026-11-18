@@ -2,7 +2,6 @@ import * as crypto from "crypto";
 import {onCall, onRequest, HttpsError, Request} from "firebase-functions/v2/https";
 import {Response} from "express";
 import {
-  onDocumentWritten,
   onDocumentUpdated,
   onDocumentDeleted,
 } from "firebase-functions/v2/firestore";
@@ -16,6 +15,11 @@ const RTDB_URL =
   "https://okospilacsvezerlo-default-rtdb.europe-west1.firebasedatabase.app";
 const RTDB_INSTANCE = "okospilacsvezerlo-default-rtdb";
 const RTDB_REGION = "europe-west1";
+
+if (process.env.FUNCTIONS_EMULATOR === "true") {
+  process.env.FIREBASE_AUTH_EMULATOR_HOST ??= "127.0.0.1:9099";
+  process.env.FIREBASE_DATABASE_EMULATOR_HOST ??= "127.0.0.1:9000";
+}
 
 admin.initializeApp({databaseURL: RTDB_URL});
 const db = admin.firestore();
@@ -530,141 +534,6 @@ export const requestPairing = onCall(
   }
 );
 
-
-export const onPairingRequestCreated = onDocumentWritten(
-  {
-    document: "_disabled_pairing_requests/{deviceId}",
-    database: "(default)",
-    region: RTDB_REGION,
-  },
-  async (event) => {
-    const snap = event.data?.after;
-    if (!snap || !snap.exists) {
-      return;
-    }
-    const deviceId = event.params.deviceId;
-    const reqData = snap.data() ?? {};
-    if (reqData.status === "rejected") {
-      return;
-    }
-
-    const requesterUid = typeof reqData.requesterUid === "string" ?
-      reqData.requesterUid.trim() :
-      typeof reqData.userId === "string" ?
-        reqData.userId.trim() :
-        typeof reqData.uid === "string" ?
-          reqData.uid.trim() :
-          "";
-    const rawPasskey = typeof reqData.passkey === "string" ?
-      reqData.passkey :
-      typeof reqData.pin === "string" ?
-        reqData.pin :
-        "";
-    const normalizedPasskey = rawPasskey.trim().toUpperCase();
-    const rawCustomName = typeof reqData.customName === "string" ?
-      reqData.customName.trim() : "";
-
-    const deviceRef = db.collection("devices").doc(deviceId);
-    const pairingRef = snap.ref;
-
-    await db.runTransaction(async (tx) => {
-      const deviceSnap = await tx.get(deviceRef);
-      const deviceData = deviceSnap.data() ?? {};
-
-      // Case A: Uninitialized device (never booted/connected to cloud yet)
-      if (
-        !deviceSnap.exists ||
-        typeof deviceData.passkeyHash !== "string" ||
-        !deviceData.passkeyHash.includes(":")
-      ) {
-        tx.update(pairingRef, {
-          status: "rejected",
-          errorCode: "DEVICE_UNINITIALIZED",
-        });
-        return;
-      }
-
-      // Case B: Initialized device (works for 0, 1, or N existing owners)
-      const existingAllowed = toUidList(deviceData.allowedUsers);
-
-      if (
-        !requesterUid ||
-        !PASSKEY_REGEX.test(normalizedPasskey) ||
-        !CUSTOM_NAME_REGEX.test(rawCustomName)
-      ) {
-        tx.update(pairingRef, {
-          status: "rejected",
-          errorCode: "INVALID_PASSKEY",
-        });
-        return;
-      }
-
-      if (
-        reqData.expiresAt &&
-        typeof reqData.expiresAt.toDate === "function" &&
-        reqData.expiresAt.toDate() < new Date()
-      ) {
-        tx.delete(pairingRef);
-        return;
-      }
-
-      if (existingAllowed.includes(requesterUid)) {
-        tx.delete(pairingRef);
-        return;
-      }
-
-      const failedAttempts =
-        typeof deviceData.failedPairAttempts === "number" &&
-        Number.isFinite(deviceData.failedPairAttempts) ?
-          deviceData.failedPairAttempts :
-          0;
-      if (failedAttempts >= MAX_PAIR_ATTEMPTS) {
-        tx.update(pairingRef, {
-          status: "rejected",
-          errorCode: "LOCKED_OUT",
-        });
-        return;
-      }
-
-      if (!verifyPasskeyHash(normalizedPasskey, deviceData.passkeyHash)) {
-        const nextAttempts = failedAttempts + 1;
-        tx.update(deviceRef, {
-          failedPairAttempts: nextAttempts,
-          updatedAt: FieldValue.serverTimestamp(),
-        });
-        tx.update(pairingRef, {
-          status: "rejected",
-          errorCode: nextAttempts >= MAX_PAIR_ATTEMPTS ?
-            "LOCKED_OUT" : "INVALID_PASSKEY",
-          attempts: nextAttempts,
-        });
-        return;
-      }
-
-      const existingCustomNames = deviceData.customNames;
-      const customNames: Record<string, string> =
-        existingCustomNames &&
-        typeof existingCustomNames === "object" &&
-        !Array.isArray(existingCustomNames) ?
-          {...(existingCustomNames as Record<string, string>)} :
-          {};
-
-      if (rawCustomName.length > 0) {
-        customNames[requesterUid] = rawCustomName;
-      } else {
-        delete customNames[requesterUid];
-      }
-
-      tx.update(deviceRef, {
-        allowedUsers: FieldValue.arrayUnion(requesterUid),
-        customNames,
-        failedPairAttempts: 0,
-        updatedAt: FieldValue.serverTimestamp(),
-      });
-      tx.delete(pairingRef);
-    });
-  }
-);
 
 export const onDeviceUpdated = onDocumentUpdated(
   {

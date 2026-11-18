@@ -78,6 +78,8 @@ async function run() {
     bobToken
   );
   assertError(wrongPasskey, "PERMISSION_DENIED");
+  const afterWrongPasskey = (await firestore.collection("devices").doc(deviceId).get()).data();
+  assert(afterWrongPasskey.failedPairAttempts === 1, "Wrong passkey did not increment the device counter.");
 
   const rateToken = await createUser("rate@example.test");
   const valid = await callPairing({deviceId, passkey, customName: "Rate lamp"}, rateToken);
