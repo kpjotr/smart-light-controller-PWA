@@ -100,7 +100,7 @@ const els = {
 
 let auth = null;
 let db = null;
-let rtdb = null;
+let rtdb = null;\nlet functions = null;
 let currentUser = null;
 let devicesUnsubscribe = null;
 let devicesById = new Map();
@@ -1521,7 +1521,7 @@ function init() {
     const app = initializeApp(firebaseConfig);
     auth = getAuth(app);
     db = initializeFirestore(app, {});
-    rtdb = getDatabase(app, RTDB_URL);
+    rtdb = getDatabase(app, RTDB_URL);\n    functions = getFunctions(app, 'europe-west1');
 
     onAuthStateChanged(auth, (user) => {
       currentUser = user;
