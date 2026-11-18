@@ -66,5 +66,10 @@
         "npm --prefix functions run build"
       ]
     }
-  ]
+  ],
+  "emulators": {
+    "auth": {
+      "port": 9099
+    }
+  }
 }

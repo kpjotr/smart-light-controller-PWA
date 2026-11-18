@@ -6,6 +6,7 @@
   "commit_or_change_id": "2a94e07",
   "modified_files": [
     "firestore.rules",
+    "firebase.json",
     "functions/src/index.ts",
     "functions/tests/firestore.rules.spec.js",
     "functions/tests/requestPairing.emulator.spec.js",
@@ -24,7 +25,7 @@
     "deferred_tests": [
       {
         "suite": "Firestore Rules emulator and requestPairing emulator tests",
-        "command": "firebase emulators:start --only functions,firestore,auth --project demo-smart-light-audit; npm --prefix functions run test:rules; npm --prefix functions run test:pairing",
+        "command": "firebase emulators:start --only functions,firestore,auth --project demo-smart-light-audit (terminal 1); $env:FIRESTORE_EMULATOR_HOST='127.0.0.1:8080'; npm --prefix functions run test:rules; npm --prefix functions run test:pairing (terminal 2)",
         "status": "BLOCKED",
         "justification": "This environment has Node 24; firebase-tools dependencies declare support through Node 22. Run in the existing VS Code Java 21/Firebase Emulator environment."
       },
