@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.1.0",
+  "framework_version": "1.1.0",
+  "handoff_type": "CODER_TO_REVIEWER",
+  "task_id": "SEC-CI-007",
+  "commit_or_change_id": "cdb6c1e",
+  "modified_files": [".github/workflows/emulator-security.yml", "docs/security/COORDINATION.md", "docs/security/EMULATOR_CI_PLANNER_TO_CODER.json", "docs/security/EMULATOR_CI_CODER_TO_REVIEWER.json"],
+  "security_controls": ["read-only GitHub Actions token", "Node version from .nvmrc", "Java 21 for the Firebase emulator", "pinned Firebase CLI version", "no secrets or deploy steps", "Auth, Firestore, RTDB, and Functions emulator isolation"],
+  "verification_evidence": {
+    "executed": [{"check": "Git whitespace validation", "result": "PASS"}, {"check": "Workflow required-control static validation", "result": "PASS"}],
+    "deferred": [{"check": "Hosted GitHub Actions execution", "status": "PENDING_PUSH", "justification": "The workflow can run only after the user approves and pushes this security branch."}]
+  },
+  "lock_released": true,
+  "requested_review_mode": "SEPARATE_AGENT_INSTANCE",
+  "proposed_status": "CONDITIONAL_PASS"
+}
