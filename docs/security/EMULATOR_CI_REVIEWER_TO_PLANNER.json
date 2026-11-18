@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.1.0",
+  "framework_version": "1.1.0",
+  "handoff_type": "REVIEWER_TO_PLANNER",
+  "task_id": "SEC-CI-007",
+  "reviewed_changes": ["cdb6c1e", "95d6a5c"],
+  "reviewer_independence": "SEPARATE_AGENT_INSTANCE",
+  "verdict": "CONDITIONAL_PASS",
+  "verified_controls": ["contents: read is the sole GitHub token permission", "Node 22 is read from .nvmrc", "Java 21 is configured", "FUNCTIONS_EMULATOR is enabled", "Auth, Firestore, RTDB, and Functions are run through emulators:exec", "No deploy step or secret is present", "Firebase CLI is version-pinned to 15.36.0"],
+  "findings": [
+    {
+      "id": "SEC-CI-007-P2",
+      "priority": "P2",
+      "status": "OPEN",
+      "summary": "GitHub Actions use moving major-version references. Pin each action to a verified full commit SHA before preview or merge.",
+      "attempted_evidence": "Official tag-to-SHA lookup was blocked by transient DNS resolution in this environment."
+    }
+  ],
+  "validation_state": "Hosted execution is PENDING_PUSH and must pass before a release gate can advance.",
+  "prohibited_actions": ["No deploy", "No FireFlow", "No secret access", "No merge to main"],
+  "recommended_status": "HOLD_RELEASE_GATE"
+}
