@@ -26,6 +26,8 @@ import {
   ref,
   onValue,
   update,
+  goOffline,
+  goOnline,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-database.js';
 
 const PARAM_SPECS = [
@@ -41,12 +43,13 @@ const CUSTOM_NAME_REGEX = /^[A-Za-z0-9 _-]{0,32}$/;
 const LOADING_DELAY_MS = 250;
 const PAIRING_TIMEOUT_MS = 60000;
 const PAIRING_GRACE_MS = 1500;
-const TOAST_DISPLAY_MS = 2500;
+const TOAST_DISPLAY_MS = 4000;
 const PAIRING_SUCCESS_DISPLAY_MS = TOAST_DISPLAY_MS;
 const ONLINE_THRESHOLD_MS = 90000;
 const RTDB_URL = 'https://okospilacsvezerlo-default-rtdb.europe-west1.firebasedatabase.app';
-const RTDB_ONLINE_THRESHOLD_MS = 35000;
-const ONLINE_TICK_MS = 5000;
+const STALE_THRESHOLD_MS = 55000;
+const ONLINE_TICK_MS = 10000;
+const RTDB_RETRY_DELAYS_MS = [2000, 5000];
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 const els = {
@@ -104,10 +107,14 @@ let devicesById = new Map();
 const liveStateById = new Map();
 const liveCmdById = new Map();
 const rtdbUnsubscribesById = new Map();
+const rtdbRetryTimersById = new Map();
+const rtdbRetryCountById = new Map();
 const renderedOnlineById = new Map();
 const dirtyParams = new Set();
 const togglingDeviceIds = new Set();
 let onlineTickerId = null;
+let tokenRefreshPromise = null;
+let rtdbReconnectInFlight = false;
 
 const uiState = {
   showPairingView: false,
@@ -319,24 +326,34 @@ async function runWithButtonLock(buttonEl, loadingText, asyncFn) {
   }
 }
 
+function normalizeTimestampMs(rawTs) {
+  if (rawTs === null || rawTs === undefined) return NaN;
+  if (typeof rawTs.toMillis === 'function') {
+    return rawTs.toMillis();
+  }
+  if (typeof rawTs === 'string') {
+    const parsedNum = Number(rawTs);
+    if (Number.isFinite(parsedNum) && parsedNum > 0) {
+      return parsedNum < 1e12 ? parsedNum * 1000 : parsedNum;
+    }
+    return Date.parse(rawTs);
+  }
+  if (typeof rawTs === 'number' && Number.isFinite(rawTs) && rawTs > 0) {
+    return rawTs < 1e12 ? rawTs * 1000 : rawTs;
+  }
+  return NaN;
+}
+
 function isDeviceOnline(device) {
   if (!device) return false;
   const liveState = liveStateById.get(device.id);
-  if (liveState && typeof liveState.ts === 'number' && Number.isFinite(liveState.ts)) {
-    return (Date.now() - liveState.ts) <= RTDB_ONLINE_THRESHOLD_MS;
+  const rtdbTsMs = normalizeTimestampMs(liveState?.ts ?? liveState?.last_seen);
+  if (Number.isFinite(rtdbTsMs)) {
+    return (Date.now() - rtdbTsMs) <= STALE_THRESHOLD_MS;
   }
   if (device.online === true) return true;
-  const lastSeen = device.lastSeenAt;
-  if (!lastSeen) return false;
-  let ms = NaN;
-  if (typeof lastSeen.toMillis === 'function') {
-    ms = lastSeen.toMillis();
-  } else if (typeof lastSeen === 'number') {
-    ms = lastSeen;
-  } else if (typeof lastSeen === 'string') {
-    ms = Date.parse(lastSeen);
-  }
-  return Number.isFinite(ms) && (Date.now() - ms) <= ONLINE_THRESHOLD_MS;
+  const lastSeenMs = normalizeTimestampMs(device.lastSeenAt ?? device.last_seen);
+  return Number.isFinite(lastSeenMs) && (Date.now() - lastSeenMs) <= ONLINE_THRESHOLD_MS;
 }
 
 function getManualLampOn(device) {
@@ -390,92 +407,197 @@ function renderLiveDeviceUpdates(deviceId) {
   }
 }
 
-function clearRtdbListeners() {
-  for (const unsubs of rtdbUnsubscribesById.values()) {
+async function refreshCurrentUserToken() {
+  const user = auth?.currentUser || currentUser;
+  if (!user || typeof user.getIdToken !== 'function') return;
+  if (!tokenRefreshPromise) {
+    tokenRefreshPromise = user.getIdToken(true)
+      .catch((error) => {
+        console.warn('Auth token refresh failed:', error?.message || error);
+      })
+      .finally(() => {
+        tokenRefreshPromise = null;
+      });
+  }
+  await tokenRefreshPromise;
+}
+
+function detachDeviceRtdbListeners(deviceId) {
+  const unsubs = rtdbUnsubscribesById.get(deviceId);
+  if (unsubs) {
     unsubs.unsubState();
     unsubs.unsubCmd();
+    rtdbUnsubscribesById.delete(deviceId);
   }
-  rtdbUnsubscribesById.clear();
+  const retryTimer = rtdbRetryTimersById.get(deviceId);
+  if (retryTimer !== undefined) {
+    clearTimeout(retryTimer);
+    rtdbRetryTimersById.delete(deviceId);
+  }
+}
+
+function clearRtdbListeners() {
+  for (const deviceId of Array.from(rtdbUnsubscribesById.keys())) {
+    detachDeviceRtdbListeners(deviceId);
+  }
+  for (const timerId of rtdbRetryTimersById.values()) {
+    clearTimeout(timerId);
+  }
+  rtdbRetryTimersById.clear();
+  rtdbRetryCountById.clear();
   liveStateById.clear();
   liveCmdById.clear();
   renderedOnlineById.clear();
+}
+
+function scheduleRtdbListenerRecovery(deviceId) {
+  if (!currentUser || !devicesById.has(deviceId)) return;
+  if (rtdbRetryTimersById.has(deviceId)) return;
+
+  const unsubs = rtdbUnsubscribesById.get(deviceId);
+  if (unsubs) {
+    unsubs.unsubState();
+    unsubs.unsubCmd();
+    rtdbUnsubscribesById.delete(deviceId);
+  }
+
+  const attempt = rtdbRetryCountById.get(deviceId) || 0;
+  const delayMs = RTDB_RETRY_DELAYS_MS[Math.min(attempt, RTDB_RETRY_DELAYS_MS.length - 1)];
+  rtdbRetryCountById.set(deviceId, attempt + 1);
+
+  const timerId = setTimeout(async () => {
+    rtdbRetryTimersById.delete(deviceId);
+    if (!currentUser || !devicesById.has(deviceId)) return;
+    await refreshCurrentUserToken();
+    if (!currentUser || !devicesById.has(deviceId)) return;
+    attachDeviceRtdbListeners(deviceId);
+  }, delayMs);
+
+  rtdbRetryTimersById.set(deviceId, timerId);
+}
+
+function attachDeviceRtdbListeners(deviceId) {
+  if (!rtdb || !currentUser || !devicesById.has(deviceId)) return;
+  detachDeviceRtdbListeners(deviceId);
+
+  const stateRef = ref(rtdb, `live/${deviceId}/state`);
+  const cmdRef = ref(rtdb, `live/${deviceId}/cmd`);
+
+  const unsubState = onValue(
+    stateRef,
+    (snap) => {
+      rtdbRetryCountById.set(deviceId, 0);
+      if (snap.exists()) {
+        liveStateById.set(deviceId, snap.val());
+      } else {
+        liveStateById.delete(deviceId);
+      }
+      renderLiveDeviceUpdates(deviceId);
+    },
+    (error) => {
+      if (!currentUser || !devicesById.has(deviceId)) return;
+      console.warn(`RTDB state listener error (${deviceId}):`, error.message);
+      scheduleRtdbListenerRecovery(deviceId);
+    }
+  );
+
+  const unsubCmd = onValue(
+    cmdRef,
+    (snap) => {
+      rtdbRetryCountById.set(deviceId, 0);
+      if (snap.exists()) {
+        liveCmdById.set(deviceId, snap.val());
+      } else {
+        liveCmdById.delete(deviceId);
+      }
+      renderLiveDeviceUpdates(deviceId);
+    },
+    (error) => {
+      if (!currentUser || !devicesById.has(deviceId)) return;
+      console.warn(`RTDB cmd listener error (${deviceId}):`, error.message);
+      scheduleRtdbListenerRecovery(deviceId);
+    }
+  );
+
+  rtdbUnsubscribesById.set(deviceId, { unsubState, unsubCmd });
 }
 
 function syncRtdbListeners(deviceIds) {
   if (!rtdb) return;
   const activeSet = new Set(deviceIds);
 
-  for (const [deviceId, unsubs] of rtdbUnsubscribesById.entries()) {
+  for (const deviceId of Array.from(rtdbUnsubscribesById.keys())) {
     if (!activeSet.has(deviceId)) {
-      unsubs.unsubState();
-      unsubs.unsubCmd();
-      rtdbUnsubscribesById.delete(deviceId);
+      detachDeviceRtdbListeners(deviceId);
+      rtdbRetryCountById.delete(deviceId);
       liveStateById.delete(deviceId);
       liveCmdById.delete(deviceId);
       renderedOnlineById.delete(deviceId);
     }
   }
 
+  for (const deviceId of Array.from(rtdbRetryTimersById.keys())) {
+    if (!activeSet.has(deviceId)) {
+      clearTimeout(rtdbRetryTimersById.get(deviceId));
+      rtdbRetryTimersById.delete(deviceId);
+      rtdbRetryCountById.delete(deviceId);
+    }
+  }
+
   for (const deviceId of activeSet) {
-    if (rtdbUnsubscribesById.has(deviceId)) continue;
-
-    const stateRef = ref(rtdb, `live/${deviceId}/state`);
-    const cmdRef = ref(rtdb, `live/${deviceId}/cmd`);
-
-    const unsubState = onValue(
-      stateRef,
-      (snap) => {
-        if (snap.exists()) {
-          liveStateById.set(deviceId, snap.val());
-        } else {
-          liveStateById.delete(deviceId);
-        }
-        renderLiveDeviceUpdates(deviceId);
-      },
-      (error) => {
-        if (!devicesById.has(deviceId)) return;
-        console.warn(`RTDB state listener error (${deviceId}):`, error.message);
-      }
-    );
-
-    const unsubCmd = onValue(
-      cmdRef,
-      (snap) => {
-        if (snap.exists()) {
-          liveCmdById.set(deviceId, snap.val());
-        } else {
-          liveCmdById.delete(deviceId);
-        }
-        renderLiveDeviceUpdates(deviceId);
-      },
-      (error) => {
-        if (!devicesById.has(deviceId)) return;
-        console.warn(`RTDB cmd listener error (${deviceId}):`, error.message);
-      }
-    );
-
-    rtdbUnsubscribesById.set(deviceId, { unsubState, unsubCmd });
+    if (rtdbUnsubscribesById.has(deviceId) || rtdbRetryTimersById.has(deviceId)) continue;
+    attachDeviceRtdbListeners(deviceId);
   }
 }
 
-function startOnlineTicker() {
-  if (onlineTickerId !== null) return;
-  onlineTickerId = setInterval(() => {
-    if (!currentUser || devicesById.size === 0) return;
-    let changed = false;
+function evaluateOnlineStatuses(forceRender = false) {
+  if (!currentUser || devicesById.size === 0) return;
+  let changed = forceRender;
+  if (!changed) {
     for (const [deviceId, device] of devicesById.entries()) {
       if (renderedOnlineById.get(deviceId) !== isDeviceOnline(device)) {
         changed = true;
         break;
       }
     }
-    if (!changed) return;
-    if (!uiState.showPairingView) {
-      renderDeviceList();
+  }
+  if (!changed) return;
+  if (!uiState.showPairingView) {
+    renderDeviceList();
+  }
+  if (uiState.settingsDeviceId && devicesById.has(uiState.settingsDeviceId)) {
+    populateSettingsModal(uiState.settingsDeviceId, false);
+  }
+}
+
+async function reconnectRtdbAndRefresh() {
+  if (!rtdb || !currentUser || rtdbReconnectInFlight) return;
+  rtdbReconnectInFlight = true;
+  try {
+    await refreshCurrentUserToken();
+    if (!currentUser || !rtdb) return;
+    goOffline(rtdb);
+    goOnline(rtdb);
+    for (const timerId of rtdbRetryTimersById.values()) {
+      clearTimeout(timerId);
     }
-    if (uiState.settingsDeviceId && devicesById.has(uiState.settingsDeviceId)) {
-      populateSettingsModal(uiState.settingsDeviceId, false);
+    rtdbRetryTimersById.clear();
+    rtdbRetryCountById.clear();
+    for (const deviceId of devicesById.keys()) {
+      attachDeviceRtdbListeners(deviceId);
     }
+    evaluateOnlineStatuses(true);
+  } catch (error) {
+    console.warn('RTDB reconnect failed:', error?.message || error);
+  } finally {
+    rtdbReconnectInFlight = false;
+  }
+}
+
+function startOnlineTicker() {
+  if (onlineTickerId !== null) return;
+  onlineTickerId = setInterval(() => {
+    evaluateOnlineStatuses(false);
   }, ONLINE_TICK_MS);
 }
 
@@ -1345,6 +1467,21 @@ function init() {
   });
   window.visualViewport?.addEventListener('resize', () => syncAppHeight(false));
   document.addEventListener('focusout', () => setTimeout(() => syncAppHeight(false), 120));
+  window.addEventListener('online', () => {
+    reconnectRtdbAndRefresh();
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      reconnectRtdbAndRefresh();
+    }
+  });
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').catch((err) => {
+        console.warn('Service worker registration failed:', err?.message || err);
+      });
+    });
+  }
 
   pairSubmitDefaultText = els.pairSubmitBtn.textContent;
   setFieldError(els.authError, '');
