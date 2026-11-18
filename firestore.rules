@@ -77,7 +77,15 @@ service cloud.firestore {
       return prev.allowedUsers is list
         && data.diff(prev).affectedKeys().hasOnly(['allowedUsers', 'customNames', 'updatedAt'])
         && data.allowedUsers is list
-        && !(request.auth.uid in data.allowedUsers);
+        && data.allowedUsers == prev.allowedUsers.removeAll([request.auth.uid])
+        && (
+          (!('customNames' in data) && !('customNames' in prev))
+          || (
+            ('customNames' in data)
+            && data.customNames is map
+            && data.customNames.diff(prev.get('customNames', {})).affectedKeys().hasOnly([request.auth.uid])
+          )
+        );
     }
 
     match /pairing_requests/{deviceId} {
@@ -95,7 +103,7 @@ service cloud.firestore {
         && resource != null
         && isRequester(resource.data)
         && resource.data.get('status', '') == 'rejected';
-      allow create, update: if isAuthenticated()
+      allow create: if isAuthenticated()
         && request.resource.data.keys().hasOnly(['userId', 'requesterUid', 'pin', 'passkey', 'attempts', 'expiresAt', 'customName'])
         && request.resource.data.userId == request.auth.uid
         && (!('requesterUid' in request.resource.data) || request.resource.data.requesterUid == request.auth.uid)
@@ -106,6 +114,8 @@ service cloud.firestore {
         && request.resource.data.attempts == 0
         && request.resource.data.expiresAt is timestamp
         && (!('customName' in request.resource.data) || isValidCustomName(request.resource.data.customName));
+      // Pairing state transitions are performed only by trusted Cloud Functions.
+      allow update: if false;
     }
 
     match /devices/{deviceId} {
