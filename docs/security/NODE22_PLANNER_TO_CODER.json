@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.1.0",
+  "framework_version": "1.1.0",
+  "handoff_type": "PLANNER_TO_CODER",
+  "task_id": "SEC-NODE-002",
+  "project_context": {"tier": "L2", "onboarding_model": "A"},
+  "scope": {
+    "goal": "Align the Functions runtime and local emulator target with stable Node.js 22 support.",
+    "affected_components": ["Cloud Functions runtime selection", "local developer runtime"],
+    "allowed_files_to_modify": ["functions/package.json", "firebase.json", ".nvmrc", "docs/security/COORDINATION.md", "docs/security/NODE22_PLANNER_TO_CODER.json", "docs/security/NODE22_CODER_TO_REVIEWER.json"],
+    "concurrency_lock": "EXCLUSIVE",
+    "lock_acquisition_mode": "COORDINATION_RESERVATION"
+  },
+  "security_invariants": [
+    {"id": "NODE-001", "rule": "The selected runtime must be stably supported by Cloud Functions for Firebase."},
+    {"id": "NODE-002", "rule": "Local emulator and declared deployment runtime must use the same major Node.js version."}
+  ],
+  "freshness_evidence": {
+    "official_source": "Firebase Functions runtime documentation checked 2026-11-18; Node 20 and Node 22 listed as supported.",
+    "project": "Node 24 observed locally; Firebase emulator dependency rejected Node 24."
+  },
+  "prohibited_actions": ["No deployment", "No FireFlow", "No tag", "No merge to main", "No secret access"]
+}

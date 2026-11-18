@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.1.0",
+  "framework_version": "1.1.0",
+  "handoff_type": "CODER_TO_REVIEWER",
+  "task_id": "SEC-NODE-002",
+  "commit_or_change_id": "PENDING_COMMIT",
+  "modified_files": ["functions/package.json", "firebase.json", ".nvmrc", "docs/security/COORDINATION.md", "docs/security/NODE22_PLANNER_TO_CODER.json", "docs/security/NODE22_CODER_TO_REVIEWER.json"],
+  "lock_released": true,
+  "verification_evidence": {
+    "executed_tests": [
+      {"suite": "Configuration syntax", "command": "PowerShell ConvertFrom-Json firebase.json", "result": "PASS"},
+      {"suite": "Functions TypeScript build", "command": "npm --prefix functions run build", "result": "PASS"}
+    ],
+    "deferred_tests": [
+      {"suite": "Emulator test suite under Node 22", "status": "PENDING", "justification": "Requires a Node 22 host runtime."}
+    ]
+  },
+  "requested_review_mode": "SEPARATE_AGENT_INSTANCE",
+  "proposed_status": "CONDITIONAL_PASS"
+}
