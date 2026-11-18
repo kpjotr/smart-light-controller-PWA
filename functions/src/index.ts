@@ -419,6 +419,8 @@ async function handleRegisterDevice(
           lux: 0,
           mot: false,
           ts: ServerValue.TIMESTAMP,
+          online: true,
+          last_seen: ServerValue.TIMESTAMP,
           energy_delta_sec: 0,
         })
       );

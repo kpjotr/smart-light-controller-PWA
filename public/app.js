@@ -115,6 +115,8 @@ const togglingDeviceIds = new Set();
 let onlineTickerId = null;
 let tokenRefreshPromise = null;
 let rtdbReconnectInFlight = false;
+let serverTimeOffset = 0;
+let serverTimeOffsetUnsubscribe = null;
 
 const uiState = {
   showPairingView: false,
@@ -346,14 +348,15 @@ function normalizeTimestampMs(rawTs) {
 
 function isDeviceOnline(device) {
   if (!device) return false;
+  const now = Date.now() + serverTimeOffset;
   const liveState = liveStateById.get(device.id);
   const rtdbTsMs = normalizeTimestampMs(liveState?.ts ?? liveState?.last_seen);
   if (Number.isFinite(rtdbTsMs)) {
-    return (Date.now() - rtdbTsMs) <= STALE_THRESHOLD_MS;
+    return (now - rtdbTsMs) <= STALE_THRESHOLD_MS;
   }
   if (device.online === true) return true;
   const lastSeenMs = normalizeTimestampMs(device.lastSeenAt ?? device.last_seen);
-  return Number.isFinite(lastSeenMs) && (Date.now() - lastSeenMs) <= ONLINE_THRESHOLD_MS;
+  return Number.isFinite(lastSeenMs) && (now - lastSeenMs) <= ONLINE_THRESHOLD_MS;
 }
 
 function getManualLampOn(device) {
@@ -1534,16 +1537,31 @@ function init() {
   try {
     const app = initializeApp(firebaseConfig);
     auth = getAuth(app);
-    db = initializeFirestore(app, { experimentalForceLongPolling: true });
+    db = initializeFirestore(app, {});
     rtdb = getDatabase(app, RTDB_URL);
 
     onAuthStateChanged(auth, (user) => {
       currentUser = user;
       if (user) {
+        if (!serverTimeOffsetUnsubscribe) {
+          const offsetRef = ref(rtdb, '/.info/serverTimeOffset');
+          serverTimeOffsetUnsubscribe = onValue(offsetRef, (snap) => {
+            const val = snap.val();
+            if (typeof val === 'number' && Number.isFinite(val)) {
+              serverTimeOffset = val;
+              evaluateOnlineStatuses();
+            }
+          });
+        }
         uiState.showPairingView = false;
         renderCurrentView();
         subscribeToDevices();
       } else {
+        if (serverTimeOffsetUnsubscribe) {
+          serverTimeOffsetUnsubscribe();
+          serverTimeOffsetUnsubscribe = null;
+        }
+        serverTimeOffset = 0;
         cleanupPendingPairing();
         setPairingFeedback('hidden', '');
         if (devicesUnsubscribe) {

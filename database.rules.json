@@ -37,9 +37,6 @@
           "wattage": {
             ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 5000 && newData.val() % 1 == 0"
           },
-          "p1_reset": {
-            ".validate": "newData.isBoolean()"
-          },
           "$other": {
             ".validate": false
           }
@@ -47,7 +44,7 @@
         "state": {
           ".read": "auth != null && root.child('acl').child($deviceId).child(auth.uid).val() === true",
           ".write": "auth != null && auth.token.role === 'device' && auth.token.deviceId === $deviceId && root.child('acl').child($deviceId).child(auth.uid).val() === true && newData.exists()",
-          ".validate": "(newData.hasChildren(['on', 'auto', 'lux', 'mot', 'ts', 'energy_delta_sec']) || newData.hasChildren(['online', 'last_seen'])) && (!newData.child('online').exists() || newData.child('online').isBoolean()) && (!newData.child('last_seen').exists() || newData.child('last_seen').isNumber())",
+          ".validate": "newData.hasChildren(['on', 'auto', 'lux', 'mot']) && (!newData.child('online').exists() || newData.child('online').isBoolean()) && (!newData.child('last_seen').exists() || newData.child('last_seen').isNumber()) && (!newData.child('ts').exists() || newData.child('ts').isNumber())",
           "on": {
             ".validate": "newData.isBoolean()"
           },
