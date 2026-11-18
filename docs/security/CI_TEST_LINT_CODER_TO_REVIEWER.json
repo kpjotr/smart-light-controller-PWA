@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.1.0",
+  "framework_version": "1.1.0",
+  "handoff_type": "CODER_TO_REVIEWER",
+  "task_id": "SEC-CI-010",
+  "commit_or_change_id": "abd512f",
+  "modified_files": ["functions/tests/firestore.rules.spec.js", "functions/tests/requestPairing.emulator.spec.js", "docs/security/COORDINATION.md", "docs/security/CI_TEST_LINT_PLANNER_TO_CODER.json", "docs/security/CI_TEST_LINT_CODER_TO_REVIEWER.json"],
+  "change_summary": "Added required JSDoc, wrapped lint-reported expressions, and made only the required property quote changes; test cases and assertions are preserved.",
+  "verification_evidence": {"executed": [{"check": "Node syntax check for both emulator test files", "result": "PASS"}, {"check": "All test source lines are <= 80 characters", "result": "PASS"}, {"check": "Git whitespace validation", "result": "PASS"}], "deferred": [{"check": "Hosted ESLint and emulator CI", "status": "PENDING_PUSH", "justification": "This worktree has no installed Functions dependencies; the GitHub workflow is the authoritative execution environment."}]},
+  "lock_released": true,
+  "requested_review_mode": "SEPARATE_AGENT_INSTANCE",
+  "proposed_status": "CONDITIONAL_PASS"
+}
