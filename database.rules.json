@@ -45,9 +45,9 @@
           }
         },
         "state": {
-          ".read": "auth != null && root.child('acl/' + $deviceId + '/' + auth.uid).val() === true",
-          ".write": "auth != null && auth.token.role === 'device' && auth.token.deviceId === $deviceId && root.child('acl/' + $deviceId).hasChildren() && newData.exists()",
-          ".validate": "newData.hasChildren(['on', 'auto', 'lux', 'mot', 'ts', 'energy_delta_sec'])",
+          ".read": "auth != null && root.child('acl').child($deviceId).child(auth.uid).val() === true",
+          ".write": "auth != null && auth.token.role === 'device' && auth.token.deviceId === $deviceId && root.child('acl').child($deviceId).child(auth.uid).val() === true && newData.exists()",
+          ".validate": "(newData.hasChildren(['on', 'auto', 'lux', 'mot', 'ts', 'energy_delta_sec']) || newData.hasChildren(['online', 'last_seen'])) && (!newData.child('online').exists() || newData.child('online').isBoolean()) && (!newData.child('last_seen').exists() || newData.child('last_seen').isNumber())",
           "on": {
             ".validate": "newData.isBoolean()"
           },
@@ -61,6 +61,12 @@
             ".validate": "newData.isBoolean()"
           },
           "ts": {
+            ".validate": "newData.isNumber()"
+          },
+          "online": {
+            ".validate": "newData.isBoolean()"
+          },
+          "last_seen": {
             ".validate": "newData.isNumber()"
           },
           "energy_delta_sec": {
