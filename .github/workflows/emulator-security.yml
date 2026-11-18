@@ -1,0 +1,39 @@
+name: Emulator security tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - codex/security-stabilization
+
+permissions:
+  contents: read
+
+jobs:
+  emulator-security:
+    runs-on: ubuntu-latest
+    env:
+      FUNCTIONS_EMULATOR: "true"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Install Functions dependencies
+        run: npm --prefix functions ci --ignore-scripts
+      - name: Lint Functions
+        run: npm --prefix functions run lint
+      - name: Build Functions
+        run: npm --prefix functions run build
+      - name: Run isolated emulator security tests
+        run: >-
+          npx --yes firebase-tools@15.36.0 emulators:exec
+          --only auth,firestore,database,functions
+          --project demo-smart-light-audit
+          "npm --prefix functions run test:rules && npm --prefix functions run test:pairing"

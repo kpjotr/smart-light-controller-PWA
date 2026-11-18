@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.1.0",
+  "framework_version": "1.1.0",
+  "handoff_type": "PLANNER_TO_CODER",
+  "task_id": "SEC-CI-007",
+  "scope": {
+    "goal": "Run the existing isolated Firestore Rules and requestPairing emulator tests in GitHub Actions for pull requests and security-branch pushes.",
+    "allowed_files_to_modify": [".github/workflows/emulator-security.yml", "docs/security/COORDINATION.md", "docs/security/EMULATOR_CI_*.json"],
+    "concurrency_lock": "EXCLUSIVE"
+  },
+  "security_invariants": [
+    {"id": "CI-001", "rule": "CI must use Node 22 and Java 21, matching the approved local validation environment."},
+    {"id": "CI-002", "rule": "The test command must start Auth, Firestore, RTDB, and Functions emulators without production credentials."},
+    {"id": "CI-003", "rule": "The workflow receives read-only repository permission and no secrets."}
+  ],
+  "freshness": {
+    "framework_document_version_and_review_date": "NOT_VERIFIED: framework source files are not present in this checkout.",
+    "official_sources_reverified": "Firebase Local Emulator Suite documentation and official GitHub Actions setup action documentation checked 2026-11-18.",
+    "project_versions_checked": "Functions runtime Node 22, .nvmrc 22, Firebase CLI 15.36.0 pin, Java 21."
+  },
+  "prohibited_actions": ["No deploy", "No FireFlow", "No secret access", "No tag", "No merge to main"]
+}
