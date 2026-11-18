@@ -13,13 +13,10 @@ import {
   where,
   limit,
   onSnapshot,
-  setDoc,
   updateDoc,
-  deleteDoc,
   arrayRemove,
   deleteField,
   serverTimestamp,
-  Timestamp,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 import {
   getDatabase,
@@ -29,6 +26,10 @@ import {
   goOffline,
   goOnline,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-database.js';
+import {
+  getFunctions,
+  httpsCallable,
+} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-functions.js';
 
 const PARAM_SPECS = [
   { key: 'threshold', label: 'Fény érzékenység', min: 1, max: 100, fallback: 50 },
@@ -41,8 +42,6 @@ const PARAM_SPECS = [
 const PASSKEY_REGEX = /^[A-Z0-9]{10}$/;
 const CUSTOM_NAME_REGEX = /^[A-Za-z0-9 _-]{0,32}$/;
 const LOADING_DELAY_MS = 250;
-const PAIRING_TIMEOUT_MS = 60000;
-const PAIRING_GRACE_MS = 1500;
 const TOAST_DISPLAY_MS = 4000;
 const PAIRING_SUCCESS_DISPLAY_MS = TOAST_DISPLAY_MS;
 const ONLINE_THRESHOLD_MS = 90000;
@@ -100,7 +99,8 @@ const els = {
 
 let auth = null;
 let db = null;
-let rtdb = null;\nlet functions = null;
+let rtdb = null;
+let functions = null;
 let currentUser = null;
 let devicesUnsubscribe = null;
 let devicesById = new Map();
@@ -123,12 +123,6 @@ const uiState = {
   settingsDeviceId: null,
 };
 
-const pendingPairing = {
-  deviceId: null,
-  unsubscribeReq: null,
-  timeoutId: null,
-};
-let pairingGraceTimer = null;
 let pairingFeedbackTimer = null;
 let statusTimer = null;
 let settingsStatusTimer = null;
@@ -294,19 +288,6 @@ function setPairingFormPending(isPending) {
 }
 
 function cleanupPendingPairing() {
-  if (pendingPairing.unsubscribeReq) {
-    pendingPairing.unsubscribeReq();
-    pendingPairing.unsubscribeReq = null;
-  }
-  if (pendingPairing.timeoutId) {
-    clearTimeout(pendingPairing.timeoutId);
-    pendingPairing.timeoutId = null;
-  }
-  if (pairingGraceTimer) {
-    clearTimeout(pairingGraceTimer);
-    pairingGraceTimer = null;
-  }
-  pendingPairing.deviceId = null;
   setPairingFormPending(false);
 }
 
@@ -1000,11 +981,7 @@ function subscribeToDevices() {
 
       syncRtdbListeners(Array.from(devicesById.keys()));
 
-      if (pendingPairing.deviceId && devicesById.has(pendingPairing.deviceId)) {
-        completePairingSuccess(pendingPairing.deviceId);
-      } else {
-        renderCurrentView();
-      }
+      renderCurrentView();
 
       if (uiState.settingsDeviceId) {
         if (devicesById.has(uiState.settingsDeviceId)) {
@@ -1088,87 +1065,16 @@ async function handlePairingSubmit(event) {
     return;
   }
 
-  cleanupPendingPairing();
-  els.pairSubmitBtn.disabled = true;
-  els.pairSubmitBtn.setAttribute('aria-busy', 'true');
+  setPairingFormPending(true);
   const sendTimer = setTimeout(() => {
     els.pairSubmitBtn.textContent = 'Küldés...';
   }, LOADING_DELAY_MS);
 
   try {
-    await setDoc(doc(db, 'pairing_requests', deviceId), {
-      pin,
-      userId: auth.currentUser.uid,
-      requesterUid: auth.currentUser.uid,
-      attempts: 0,
-      expiresAt: Timestamp.fromDate(new Date(Date.now() + 5 * 60 * 1000)),
-      customName,
-    });
+    const pair = httpsCallable(functions, 'requestPairing');
+    await pair({ deviceId, passkey: pin, customName });
     clearTimeout(sendTimer);
-
-    pendingPairing.deviceId = deviceId;
-    setPairingFormPending(true);
-    setPairingFeedback('pending', `Párosítás folyamatban: várakozás a(z) ${deviceId} válaszára...`);
-
-    pendingPairing.timeoutId = setTimeout(() => {
-      if (pendingPairing.deviceId !== deviceId) return;
-      cleanupPendingPairing();
-      setPairingFeedback(
-        'error',
-        'A párosítási kérelem időtúllépés miatt megszakadt (60 mp). Ellenőrizd az eszközt és próbáld újra.'
-      );
-    }, PAIRING_TIMEOUT_MS);
-
-    pendingPairing.unsubscribeReq = onSnapshot(
-      doc(db, 'pairing_requests', deviceId),
-      (snap) => {
-        if (pendingPairing.deviceId !== deviceId) return;
-
-        if (snap.exists()) {
-          const reqData = snap.data() || {};
-          if (reqData.status === 'rejected' || typeof reqData.errorCode === 'string') {
-            cleanupPendingPairing();
-            setPairingFeedback('error', getPairingRejectionMessage(reqData.errorCode));
-            deleteDoc(doc(db, 'pairing_requests', deviceId)).catch(() => {});
-            return;
-          }
-          if (typeof reqData.attempts === 'number' && reqData.attempts > 0) {
-            cleanupPendingPairing();
-            setPairingFeedback(
-              'error',
-              `Sikertelen párosítás: az eszköz elutasította a megadott Passkey kódot (${reqData.attempts}/3 próbálkozás).`
-            );
-          }
-          return;
-        }
-
-        if (devicesById.has(deviceId)) {
-          completePairingSuccess(deviceId);
-          return;
-        }
-
-        if (!pairingGraceTimer) {
-          pairingGraceTimer = setTimeout(() => {
-            pairingGraceTimer = null;
-            if (pendingPairing.deviceId !== deviceId) return;
-            if (devicesById.has(deviceId)) {
-              completePairingSuccess(deviceId);
-            } else {
-              cleanupPendingPairing();
-              setPairingFeedback(
-                'error',
-                'A párosítási kérelem sikertelen: hibás Passkey kód, zárolás vagy időtúllépés.'
-              );
-            }
-          }, PAIRING_GRACE_MS);
-        }
-      },
-      (error) => {
-        if (pendingPairing.deviceId !== deviceId) return;
-        cleanupPendingPairing();
-        setPairingFeedback('error', error.message);
-      }
-    );
+    completePairingSuccess(deviceId);
   } catch (error) {
     clearTimeout(sendTimer);
     cleanupPendingPairing();
@@ -1521,7 +1427,8 @@ function init() {
     const app = initializeApp(firebaseConfig);
     auth = getAuth(app);
     db = initializeFirestore(app, {});
-    rtdb = getDatabase(app, RTDB_URL);\n    functions = getFunctions(app, 'europe-west1');
+    rtdb = getDatabase(app, RTDB_URL);
+    functions = getFunctions(app, 'europe-west1');
 
     onAuthStateChanged(auth, (user) => {
       currentUser = user;

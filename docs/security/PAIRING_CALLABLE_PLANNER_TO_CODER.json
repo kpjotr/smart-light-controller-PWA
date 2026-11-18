@@ -1,0 +1,49 @@
+{
+  "schema_version": "1.1.0",
+  "framework_version": "1.1.0",
+  "handoff_type": "PLANNER_TO_CODER",
+  "task_id": "SEC-PAIR-001",
+  "project_context": {
+    "tier": "L2",
+    "onboarding_model": "A"
+  },
+  "scope": {
+    "goal": "Validate and harden the authenticated requestPairing Callable flow.",
+    "affected_components": ["Cloud Functions", "Firestore Rules", "PWA pairing UI", "emulator tests"],
+    "allowed_files_to_modify": [
+      "functions/src/index.ts",
+      "functions/tests/firestore.rules.spec.js",
+      "functions/tests/requestPairing.emulator.spec.js",
+      "functions/package.json",
+      "firestore.rules",
+      "public/app.js",
+      "docs/security/COORDINATION.md",
+      "docs/security/PAIRING_CALLABLE_PLANNER_TO_CODER.json",
+      "docs/security/PAIRING_CALLABLE_CODER_TO_REVIEWER.json"
+    ],
+    "concurrency_lock": "EXCLUSIVE",
+    "lock_acquisition_mode": "COORDINATION_RESERVATION"
+  },
+  "required_security_modules": [
+    {"id": "01_SECURITY_CORE.md", "module_version": "1.1.0", "availability": "NOT_VERIFIED"},
+    {"id": "02_FIREBASE_SECURITY.md", "module_version": "1.1.0", "availability": "NOT_VERIFIED"},
+    {"id": "03_FRONTEND_SECURITY.md", "module_version": "1.1.0", "availability": "NOT_VERIFIED"},
+    {"id": "04_IDENTITY_ACCESS_SECURITY.md", "module_version": "1.1.0", "availability": "NOT_VERIFIED"},
+    {"id": "05_API_INTEGRATION_SECURITY.md", "module_version": "1.1.0", "availability": "NOT_VERIFIED"},
+    {"id": "08_AI_AGENT_CODING_SECURITY.md", "module_version": "1.1.0", "availability": "NOT_VERIFIED"},
+    {"id": "09_SECURITY_TESTING_THREAT_MODELING.md", "module_version": "1.1.0", "availability": "NOT_VERIFIED"},
+    {"id": "11_REFERENCE_TEMPLATES_FIREBASE.md", "module_version": "1.1.0", "availability": "NOT_VERIFIED"}
+  ],
+  "security_invariants": [
+    {"id": "PAIR-001", "rule": "Only authenticated callers may pair a device."},
+    {"id": "PAIR-002", "rule": "Passkeys must not be persisted in client-writable Firestore documents."},
+    {"id": "PAIR-003", "rule": "Pairing attempts are rate-limited and invalid passkeys count toward device lockout."},
+    {"id": "PAIR-004", "rule": "A valid duplicate request is idempotent."}
+  ],
+  "freshness_evidence": {
+    "framework_document": "Framework v1.1.0 review date recorded in SECURITY_PROFILE.md; source documents unavailable in this workspace, NOT_VERIFIED.",
+    "official_sources": "NOT_VERIFIED in this execution environment.",
+    "project": "Firebase Functions 7.0.0, firebase-admin 13.6.0, Firebase Web SDK 10.14.1, Node 24 observed on 2026-11-18."
+  },
+  "prohibited_actions": ["No deployment", "No FireFlow", "No tag", "No merge to main", "No secret access or disclosure"]
+}

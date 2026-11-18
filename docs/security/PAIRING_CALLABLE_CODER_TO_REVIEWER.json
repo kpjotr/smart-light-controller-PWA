@@ -1,0 +1,45 @@
+{
+  "schema_version": "1.1.0",
+  "framework_version": "1.1.0",
+  "handoff_type": "CODER_TO_REVIEWER",
+  "task_id": "SEC-PAIR-001",
+  "commit_or_change_id": "PENDING_COMMIT",
+  "modified_files": [
+    "firestore.rules",
+    "functions/src/index.ts",
+    "functions/tests/firestore.rules.spec.js",
+    "functions/tests/requestPairing.emulator.spec.js",
+    "functions/package.json",
+    "public/app.js",
+    "docs/security/COORDINATION.md",
+    "docs/security/PAIRING_CALLABLE_PLANNER_TO_CODER.json",
+    "docs/security/PAIRING_CALLABLE_CODER_TO_REVIEWER.json"
+  ],
+  "lock_released": true,
+  "verification_evidence": {
+    "executed_tests": [
+      {"suite": "Functions TypeScript build", "command": "npm --prefix functions run build", "result": "PASS"},
+      {"suite": "Whitespace check", "command": "git diff --check", "result": "PASS"}
+    ],
+    "deferred_tests": [
+      {
+        "suite": "Firestore Rules emulator and requestPairing emulator tests",
+        "command": "firebase emulators:start --only functions,firestore,auth --project demo-smart-light-audit; npm --prefix functions run test:rules; npm --prefix functions run test:pairing",
+        "status": "BLOCKED",
+        "justification": "This environment has Node 24; firebase-tools dependencies declare support through Node 22. Run in the existing VS Code Java 21/Firebase Emulator environment."
+      },
+      {
+        "suite": "Functions lint",
+        "command": "npm --prefix functions run lint",
+        "status": "BLOCKED",
+        "justification": "Existing repository-wide CRLF line endings and the JavaScript rules test are rejected by the TypeScript-only lint configuration."
+      }
+    ]
+  },
+  "known_issues_and_open_items": [
+    "Independent review is required before release approval.",
+    "The legacy onPairingRequestCreated export remains in source but is retargeted to a non-client-writable disabled collection; removal may be performed as later cleanup."
+  ],
+  "requested_review_mode": "SEPARATE_AGENT_INSTANCE",
+  "proposed_status": "CONDITIONAL_PASS"
+}

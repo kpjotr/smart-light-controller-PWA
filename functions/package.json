@@ -9,7 +9,8 @@
     "start": "npm run shell",
     "deploy": "firebase deploy --only functions",
     "logs": "firebase functions:log",
-    "test:rules": "node tests/firestore.rules.spec.js"
+    "test:rules": "node tests/firestore.rules.spec.js",
+    "test:pairing": "node tests/requestPairing.emulator.spec.js"
   },
   "engines": {
     "node": "24"

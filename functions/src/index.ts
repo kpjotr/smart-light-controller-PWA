@@ -446,40 +446,85 @@ async function handleRegisterDevice(
 }
 
 export const verifyPairing = onRequest(handleRegisterDevice);
-export const registerDevice = onRequest(handleRegisterDevice);\n
+export const registerDevice = onRequest(handleRegisterDevice);
+
 export const requestPairing = onCall(
   {region: RTDB_REGION},
   async (request) => {
-    if (!request.auth) throw new HttpsError("unauthenticated", "Sign-in required.");
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Sign-in required.");
+    }
+    const requesterUid = request.auth.uid;
     const data = (request.data ?? {}) as Record<string, unknown>;
-    const deviceId = typeof data.deviceId === "string" ? data.deviceId.trim() : "";
-    const passkey = typeof data.passkey === "string" ? data.passkey.trim().toUpperCase() : "";
-    const customName = typeof data.customName === "string" ? data.customName.trim() : "";
-    if (!DEVICE_ID_REGEX.test(deviceId) || !PASSKEY_REGEX.test(passkey) || !CUSTOM_NAME_REGEX.test(customName)) {
+    const deviceId = typeof data.deviceId === "string" ?
+      data.deviceId.trim() : "";
+    const passkey = typeof data.passkey === "string" ?
+      data.passkey.trim().toUpperCase() : "";
+    const customName = typeof data.customName === "string" ?
+      data.customName.trim() : "";
+    if (
+      !DEVICE_ID_REGEX.test(deviceId) ||
+      !PASSKEY_REGEX.test(passkey) ||
+      !CUSTOM_NAME_REGEX.test(customName)
+    ) {
       throw new HttpsError("invalid-argument", "Invalid pairing request.");
     }
     const deviceRef = db.collection("devices").doc(deviceId);
-    const rateRef = db.collection("_pairingRateLimits").doc(`${request.auth.uid}_${deviceId}`);
-    await db.runTransaction(async (tx) => {
+    const rateRef = db.collection("_pairingRateLimits").doc(`${requesterUid}_${deviceId}`);
+    const outcome = await db.runTransaction(async (tx) => {
       const [deviceSnap, rateSnap] = await Promise.all([tx.get(deviceRef), tx.get(rateRef)]);
-      if (!deviceSnap.exists) throw new HttpsError("not-found", "Device not initialized.");
+      if (!deviceSnap.exists) {
+        return "not-found";
+      }
       const now = Date.now();
       const rate = rateSnap.data() ?? {};
       const windowStart = typeof rate.windowStartMs === "number" ? rate.windowStartMs : now;
-      const count = now - windowStart < 60_000 && typeof rate.count === "number" ? rate.count : 0;
-      if (count >= 5) throw new HttpsError("resource-exhausted", "Try again later.");
-      tx.set(rateRef, {windowStartMs: now - windowStart < 60_000 ? windowStart : now, count: count + 1, updatedAt: admin.firestore.FieldValue.serverTimestamp()}, {merge: true});
+      const count = now - windowStart < 60_000 && typeof rate.count === "number" ?
+        rate.count : 0;
+      if (count >= 5) {
+        return "resource-exhausted";
+      }
+      tx.set(rateRef, {
+        windowStartMs: now - windowStart < 60_000 ? windowStart : now,
+        count: count + 1,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, {merge: true});
       const device = deviceSnap.data() ?? {};
-      const failed = typeof device.failedPairAttempts === "number" ? device.failedPairAttempts : 0;
-      if (failed >= MAX_PAIR_ATTEMPTS) throw new HttpsError("failed-precondition", "Pairing locked.");
+      const failed = typeof device.failedPairAttempts === "number" ?
+        device.failedPairAttempts : 0;
+      if (failed >= MAX_PAIR_ATTEMPTS) {
+        return "failed-precondition";
+      }
       if (!verifyPasskeyHash(passkey, device.passkeyHash)) {
         tx.update(deviceRef, {failedPairAttempts: failed + 1, updatedAt: admin.firestore.FieldValue.serverTimestamp()});
-        throw new HttpsError("permission-denied", "Invalid passkey.");
+        return "permission-denied";
       }
-      const names = device.customNames && typeof device.customNames === "object" && !Array.isArray(device.customNames) ? {...device.customNames as Record<string,string>} : {};
-      if (customName) names[request.auth.uid] = customName; else delete names[request.auth.uid];
-      tx.update(deviceRef, {allowedUsers: admin.firestore.FieldValue.arrayUnion(request.auth.uid), customNames: names, failedPairAttempts: 0, updatedAt: admin.firestore.FieldValue.serverTimestamp()});
+      const names = device.customNames &&
+        typeof device.customNames === "object" &&
+        !Array.isArray(device.customNames) ?
+        {...device.customNames as Record<string, string>} : {};
+      if (customName) {
+        names[requesterUid] = customName;
+      } else {
+        delete names[requesterUid];
+      }
+      tx.update(deviceRef, {
+        allowedUsers: admin.firestore.FieldValue.arrayUnion(requesterUid),
+        customNames: names,
+        failedPairAttempts: 0,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      return "ok";
     });
+    if (outcome !== "ok") {
+      const messages: Record<string, string> = {
+        "not-found": "Device not initialized.",
+        "resource-exhausted": "Try again later.",
+        "failed-precondition": "Pairing locked.",
+        "permission-denied": "Invalid passkey.",
+      };
+      throw new HttpsError(outcome, messages[outcome]);
+    }
     return {ok: true};
   }
 );
@@ -487,7 +532,7 @@ export const requestPairing = onCall(
 
 export const onPairingRequestCreated = onDocumentWritten(
   {
-    document: "pairing_requests/{deviceId}",
+    document: "_disabled_pairing_requests/{deviceId}",
     database: "(default)",
     region: RTDB_REGION,
   },

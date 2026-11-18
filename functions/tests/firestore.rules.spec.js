@@ -61,7 +61,7 @@ async function run() {
     }));
 
     const expiresAt = Timestamp.fromDate(new Date(Date.now() + 60_000));
-    await assertSucceeds(setDoc(doc(alice, "pairing_requests/SmartLight-0001"), {
+    await assertFails(setDoc(doc(alice, "pairing_requests/SmartLight-0001"), {
       userId: "alice",
       requesterUid: "alice",
       pin: "ABCDEFGHIJ",

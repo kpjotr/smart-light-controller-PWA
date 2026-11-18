@@ -88,36 +88,6 @@ service cloud.firestore {
         );
     }
 
-    match /pairing_requests/{deviceId} {
-      function isRequester(data) {
-        return data != null && (
-          ('requesterUid' in data && data.requesterUid == request.auth.uid)
-          || ('userId' in data && data.userId == request.auth.uid)
-        );
-      }
-
-      allow get: if isAuthenticated()
-        && (resource == null || isRequester(resource.data));
-      allow list: if false;
-      allow delete: if isAuthenticated()
-        && resource != null
-        && isRequester(resource.data)
-        && resource.data.get('status', '') == 'rejected';
-      allow create: if isAuthenticated()
-        && request.resource.data.keys().hasOnly(['userId', 'requesterUid', 'pin', 'passkey', 'attempts', 'expiresAt', 'customName'])
-        && request.resource.data.userId == request.auth.uid
-        && (!('requesterUid' in request.resource.data) || request.resource.data.requesterUid == request.auth.uid)
-        && (
-          ('pin' in request.resource.data && request.resource.data.pin is string && request.resource.data.pin.matches('^[A-Za-z0-9]{6,12}$'))
-          || ('passkey' in request.resource.data && request.resource.data.passkey is string && request.resource.data.passkey.matches('^[A-Za-z0-9]{6,12}$'))
-        )
-        && request.resource.data.attempts == 0
-        && request.resource.data.expiresAt is timestamp
-        && (!('customName' in request.resource.data) || isValidCustomName(request.resource.data.customName));
-      // Pairing state transitions are performed only by trusted Cloud Functions.
-      allow update: if false;
-    }
-
     match /devices/{deviceId} {
       function isAllowedUser() {
         return isAuthenticated()
