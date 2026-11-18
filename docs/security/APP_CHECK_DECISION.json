@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.1.0",
+  "decision_type": "HUMAN_RISK_ACCEPTANCE",
+  "topic": "Firebase App Check enforcement",
+  "status": "DEFERRED_BY_OWNER",
+  "decision_timestamp": "2026-11-18",
+  "scope": ["requestPairing Callable", "PWA release planning"],
+  "residual_risk": "The callable endpoint relies on Firebase Authentication, input validation, rate limiting, and duplicate protection without an App Check enforcement layer.",
+  "release_effect": "This deferral does not authorize a production release. Reconsider App Check before a broader public release.",
+  "prohibited_actions": ["No App Check configuration change", "No deploy", "No FireFlow"]
+}

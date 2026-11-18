@@ -10,6 +10,7 @@ import * as admin from "firebase-admin";
 import {getAuth} from "firebase-admin/auth";
 import {getDatabase, ServerValue} from "firebase-admin/database";
 import {FieldValue} from "firebase-admin/firestore";
+import {defineSecret} from "firebase-functions/params";
 
 const RTDB_URL =
   "https://okospilacsvezerlo-default-rtdb.europe-west1.firebasedatabase.app";
@@ -25,9 +26,7 @@ admin.initializeApp({databaseURL: RTDB_URL});
 const db = admin.firestore();
 const rtdb = getDatabase();
 
-// 1. Védelmi réteg: Statikus Pre-Shared Key
-// (később kiszervezhető Secret Managerbe)
-const ESP_AUTH_TOKEN = "ESP32_SECRET_TOKEN_998877";
+const ESP_AUTH_TOKEN = defineSecret("ESP_AUTH_TOKEN");
 const PASSKEY_REGEX = /^[A-Z0-9]{10}$/;
 const DEVICE_ID_REGEX = /^SmartLight-[0-9A-Fa-f]{4}$/;
 const ESP_UID_REGEX = /^[0-9A-Fa-f]{12}$/;
@@ -242,7 +241,17 @@ async function handleRegisterDevice(
   res: Response
 ): Promise<void> {
   // Pre-Shared Key ellenőrzése
-  if (req.header("X-Esp-Auth-Token") !== ESP_AUTH_TOKEN) {
+  const suppliedToken = req.header("X-Esp-Auth-Token");
+  const expectedToken = ESP_AUTH_TOKEN.value();
+  if (
+    !suppliedToken ||
+    !expectedToken ||
+    suppliedToken.length !== expectedToken.length ||
+    !crypto.timingSafeEqual(
+      Buffer.from(suppliedToken, "utf8"),
+      Buffer.from(expectedToken, "utf8")
+    )
+  ) {
     res.status(401).send("Unauthorized");
     return;
   }
@@ -450,8 +459,8 @@ async function handleRegisterDevice(
   res.status(200).json({ok: true, deviceId, customToken});
 }
 
-export const verifyPairing = onRequest(handleRegisterDevice);
-export const registerDevice = onRequest(handleRegisterDevice);
+export const verifyPairing = onRequest({secrets: [ESP_AUTH_TOKEN]}, handleRegisterDevice);
+export const registerDevice = onRequest({secrets: [ESP_AUTH_TOKEN]}, handleRegisterDevice);
 
 export const requestPairing = onCall(
   {region: RTDB_REGION},
