@@ -1,0 +1,9 @@
+{
+  "schema_version": "1.1.0",
+  "framework_version": "1.1.0",
+  "handoff_type": "PLANNER_TO_CODER",
+  "task_id": "SEC-NODE-003",
+  "scope": {"goal": "Constrain the Firebase Admin transitive database package resolution to a Node 22-compatible release.", "affected_components": ["Functions dependency lockfile"], "allowed_files_to_modify": ["functions/package.json", "functions/package-lock.json", "docs/security/COORDINATION.md", "docs/security/NODE22_DEPENDENCY_PLANNER_TO_CODER.json", "docs/security/NODE22_DEPENDENCY_CODER_TO_REVIEWER.json"], "concurrency_lock": "EXCLUSIVE", "lock_acquisition_mode": "COORDINATION_RESERVATION"},
+  "security_invariants": [{"id": "NODE-003", "rule": "Installed Function dependencies must declare support for the selected Node 22 runtime."}],
+  "prohibited_actions": ["No deployment", "No FireFlow", "No tag", "No merge to main", "No automated audit remediation"]
+}
