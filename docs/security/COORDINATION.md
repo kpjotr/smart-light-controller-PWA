@@ -11,4 +11,4 @@
 | SEC-PAIR-005 | Coder / Codex | 2026-11-18T14:30:00Z | firebase.json; functions/src/index.ts; functions/tests/requestPairing.emulator.spec.js; docs/security/PAIRING_ISOLATION* | COORDINATION_RESERVATION | RELEASED |
 | SEC-SECRET-006 | Coder / Codex | 2026-11-18T15:00:00Z | functions/src/index.ts; docs/security/SECRET_MIGRATION* | COORDINATION_RESERVATION | RELEASED |
 | SEC-CI-007 | Coder / Codex | 2026-11-18T16:00:00Z | .github/workflows/emulator-security.yml; docs/security/EMULATOR_CI* | COORDINATION_RESERVATION | RELEASED |
-| SEC-CI-008 | Coder / Codex | 2026-11-18T16:15:00Z | functions/src/index.ts; docs/security/CI_LINT_FIX* | COORDINATION_RESERVATION | RESERVED |
+| SEC-CI-008 | Coder / Codex | 2026-11-18T16:15:00Z | functions/src/index.ts; docs/security/CI_LINT_FIX* | COORDINATION_RESERVATION | RELEASED |

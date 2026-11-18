@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.1.0",
+  "framework_version": "1.1.0",
+  "handoff_type": "CODER_TO_REVIEWER",
+  "task_id": "SEC-CI-008",
+  "commit_or_change_id": "7bdf8e7",
+  "modified_files": ["functions/src/index.ts", "docs/security/COORDINATION.md", "docs/security/CI_LINT_FIX_PLANNER_TO_CODER.json", "docs/security/CI_LINT_FIX_CODER_TO_REVIEWER.json"],
+  "change_summary": "Reformatted all lines reported by the hosted ESLint max-line-length check without changing control flow or values.",
+  "verification_evidence": {"executed": [{"check": "Git whitespace validation", "result": "PASS"}, {"check": "Source max line length <= 80", "result": "PASS"}], "deferred": [{"check": "ESLint and hosted CI", "status": "PENDING_PUSH", "justification": "This worktree has no installed Functions dependencies; the GitHub workflow is the authoritative execution environment."}]},
+  "lock_released": true,
+  "requested_review_mode": "SEPARATE_AGENT_INSTANCE",
+  "proposed_status": "CONDITIONAL_PASS"
+}
