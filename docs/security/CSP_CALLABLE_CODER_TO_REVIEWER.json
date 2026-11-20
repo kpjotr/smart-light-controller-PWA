@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.1.0",
+  "framework_version": "1.1.0",
+  "handoff_type": "CODER_TO_REVIEWER",
+  "task_id": "SEC-CSP-013",
+  "commit_or_change_id": "e877cd5",
+  "modified_files": ["firebase.json", "docs/security/COORDINATION.md", "docs/security/CSP_CALLABLE_PLANNER_TO_CODER.json", "docs/security/CSP_CALLABLE_CODER_TO_REVIEWER.json"],
+  "change_summary": "Added the Firebase Cloud Functions HTTPS domain pattern to connect-src so the PWA may call requestPairing.",
+  "verification_evidence": {"executed": [{"check": "firebase.json parse", "result": "PASS"}, {"check": "connect-src includes cloudfunctions.net and has no bare wildcard", "result": "PASS"}, {"check": "Git whitespace validation", "result": "PASS"}], "deferred": [{"check": "Preview browser pairing flow", "status": "PENDING_PREVIEW_DEPLOY", "justification": "The Hosting preview must receive this CSP change before the browser can call the deployed Callable."}]},
+  "lock_released": true,
+  "requested_review_mode": "SEPARATE_AGENT_INSTANCE",
+  "proposed_status": "CONDITIONAL_PASS"
+}
