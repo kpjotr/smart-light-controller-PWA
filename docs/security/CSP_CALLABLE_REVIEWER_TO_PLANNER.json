@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.1.0",
+  "framework_version": "1.1.0",
+  "handoff_type": "REVIEWER_TO_PLANNER",
+  "task_id": "SEC-CSP-013",
+  "reviewed_changes": ["e877cd5", "85a27c1"],
+  "reviewer_independence": "SEPARATE_AGENT_INSTANCE",
+  "verdict": "PASS",
+  "verified": ["PWA Callable SDK usage resolves to the europe-west1 Firebase Cloud Functions HTTPS domain", "connect-src permits only the required Cloud Functions HTTPS domain pattern", "No bare wildcard or other CSP directive changed"],
+  "remaining_validation": "Preview Hosting redeploy and browser pairing retry are required.",
+  "prohibited_actions": ["No FireFlow", "No secret access", "No tag", "No merge to main"],
+  "recommended_status": "READY_FOR_PREVIEW_REDEPLOY"
+}
