@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.1.0",
+  "framework_version": "1.1.0",
+  "handoff_type": "PLANNER_TO_CODER",
+  "task_id": "SEC-CSP-013",
+  "scope": {"goal": "Permit only Firebase Cloud Functions HTTPS endpoints in the Hosting CSP so the deployed requestPairing Callable can be invoked from the PWA.", "allowed_files_to_modify": ["firebase.json", "docs/security/COORDINATION.md", "docs/security/CSP_CALLABLE_*.json"], "concurrency_lock": "EXCLUSIVE"},
+  "security_invariants": [{"id": "CSP-001", "rule": "Do not loosen any CSP directive beyond HTTPS Cloud Functions endpoint connectivity."}, {"id": "CSP-002", "rule": "Callable requests must remain restricted to Firebase Cloud Functions domains, not arbitrary HTTPS origins."}],
+  "freshness": {"framework_document_version_and_review_date": "NOT_VERIFIED: framework source files are not present in this checkout.", "official_sources_reverified": "Runtime browser CSP violation observed in the approved preview deployment 2026-11-20.", "project_versions_checked": "Preview PWA and deployed europe-west1 requestPairing Callable checked 2026-11-20."},
+  "prohibited_actions": ["No FireFlow", "No secret access", "No tag", "No merge to main"]
+}

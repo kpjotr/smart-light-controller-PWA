@@ -16,3 +16,4 @@
 | SEC-CI-010 | Coder / Codex | 2026-11-18T16:45:00Z | functions/tests/firestore.rules.spec.js; functions/tests/requestPairing.emulator.spec.js; docs/security/CI_TEST_LINT* | COORDINATION_RESERVATION | RELEASED |
 | SEC-CI-011 | Coder / Codex | 2026-11-18T17:00:00Z | functions/package.json; functions/.eslintrc.js; .github/workflows/emulator-security.yml; docs/security/CI_TEST_BOUNDARY* | COORDINATION_RESERVATION | RELEASED |
 | SEC-CI-012 | Coder / Codex | 2026-11-18T17:15:00Z | .github/workflows/emulator-security.yml; docs/security/CI_ACTION_PINNING* | COORDINATION_RESERVATION | RELEASED |
+| SEC-CSP-013 | Coder / Codex | 2026-11-20T19:30:00Z | firebase.json; docs/security/CSP_CALLABLE* | COORDINATION_RESERVATION | RESERVED |
